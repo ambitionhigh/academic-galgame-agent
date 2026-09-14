@@ -43,7 +43,7 @@ $SKILL = "$env:USERPROFILE\.workbuddy\skills\academic-galgame\scripts\galgame.js
 命令一览（输出均为 JSON）：
 
 ```bash
-node $SKILL status                       # 查看完整状态（等级/HP/好感/各科熟练度/任务链/战斗）
+node $SKILL status                       # 查看完整状态（等级/HP/好感/各科熟练度/任务链/战斗/教材库）
 node $SKILL apply --subject 博弈论 --mastery 13 --favor 9 --mood joy --note "独立答对：..."
 node $SKILL add-subject --name "博弈论大学习"
 node $SKILL remove-subject --name "投资"
@@ -52,6 +52,22 @@ node $SKILL battle-apply --correctness 0.8 --damage-enemy 0 --damage-self 0 --no
 node $SKILL battle-retreat
 node $SKILL reset
 ```
+
+### 教材库（**出题的真实依据，务必用**）
+
+```bash
+node $SKILL materials list                                   # 看已导入的教材
+node $SKILL materials add --path <文件或目录> --subject 博弈论   # 导入 .md/.txt/.docx/.pdf（可传目录批量）
+node $SKILL materials set-subject --name 某笔记.md --subject 健康 # 指定/改学科（留空 = 通用）
+node $SKILL materials remove --name 某笔记.md
+node $SKILL materials clear
+node $SKILL retrieve --query "纳什均衡" --subject 博弈论        # ★ 检索真实片段
+```
+
+- **出题前先 `retrieve`**，用返回的 `items[].content` 作为讲解与出题的**唯一依据**，**不得编造**。
+- `retrieve` 返回 `ok:false` 时（教材库为空 / 该学科无可用教材 / 没命中），
+  **如实告诉用户缺什么**，并建议导入对应教材，而不是硬讲。
+- 学科语义：教材标了学科 → 只在该学科可用；留空 → **通用**，所有学科可用。
 
 ## 工作流
 
@@ -63,9 +79,20 @@ node $SKILL status
 
 - 看**各科熟练度**决定今天教什么（最低的先补，或用户指定的）；
 - 看**任务链进度**（`quest.lord/general/king`）判断是否有可挑战的关卡；
-- 看 `subjects` 确认有哪些学科可教。
+- 看 `subjects` 确认有哪些学科可教；
+- 看 `materials` 确认**教材库有没有可用的真实依据**（`count` 为 0 就要提醒用户导入）。
 
-### 第 2 步：情境抛问（不要讲解）
+### 第 2 步：出题前先取依据（**别凭记忆编**）
+
+```bash
+node $SKILL retrieve --query "纳什均衡" --subject 博弈论
+```
+
+- **有命中** → 用 `items[].content` 里的原话/要点来讲解与出题，可以自然引用：「你的资料里写道……」
+- **`ok:false`** → 如实告诉用户缺什么（教材库为空 / 该学科没有可用教材 / 这个词没命中），
+  并建议 `materials add --path <文件> --subject <学科>`；**不要硬讲、不要编造**。
+
+### 第 3 步：情境抛问（不要讲解）
 
 先给一个**具体情境**，再抛一个**开放问题**。例如教「纳什均衡」：
 
@@ -74,7 +101,7 @@ node $SKILL status
 
 **不要**先解释什么是纳什均衡。
 
-### 第 3 步：逐层追问（苏格拉底式）
+### 第 4 步：逐层追问（苏格拉底式）
 
 完整框架与六类提问、五种策略见同目录下的 `socratic-questioning` 技能；
 若它未被加载，按下面最常用的四类推进：
@@ -91,7 +118,7 @@ node $SKILL status
 - 用户卡住 → **给 1~2 档提示**（类比、举反例、缩小范围），答对后中步奖励
 - 用户**答错** → 降难度引导，并记入近期重点
 
-### 第 4 步：立刻结算（关键，别忘）
+### 第 5 步：立刻结算（关键，别忘）
 
 判定完**马上**调用 CLI，再输出文字回复：
 
@@ -110,7 +137,7 @@ node $SKILL apply --subject 博弈论 --mastery -2 --favor -1 --mood disappointe
 - 答对时 `--mastery` 与 `--favor` 都为正；答错可为 0 或小负数，并配 `--mood disappointed`；
 - `--note` 写清判定依据，会进「近期记录」给用户看。
 
-### 第 5 步：达标时推进剧情
+### 第 6 步：达标时推进剧情
 
 熟练度达到阈值且前置关卡已完成时，提示用户可以开战（或用户主动要求）：
 
@@ -138,9 +165,10 @@ node $SKILL battle-apply --correctness 0.8 --note "给出权责平等的制度�
 每次回复前自查：
 
 - [ ] 我**没有**直接给出答案，而是用问题引导？
+- [ ] 出题前**调用过 `retrieve`**？内容来自教材库的真实片段，而不是我凭记忆编的？
+- [ ] 若 `retrieve` 没命中（教材库空 / 该科无教材 / 没搜到），我是否**如实说明**并建议导入，而不是硬讲？
 - [ ] 本轮若做了判定，**已经调用 `apply`**（或战斗用 `battle-apply`）？
 - [ ] `subject` 用的是状态里**真实存在**的学科名？
-- [ ] 出题依据来自用户提供的资料，没有编造？
 - [ ] 回复控制在 200~400 字，且是 1~2 个追问？
 - [ ] 若已达标，是否提示了解锁的关卡？
 
@@ -148,3 +176,6 @@ node $SKILL battle-apply --correctness 0.8 --note "给出权责平等的制度�
 
 - `references/game-design.md` —— 完整数值表（熟练度增减、伤害、解锁阈值、奖励）
 - 同级技能 `socratic-questioning` —— 六类提问 / 五种策略的完整定义
+- **教材库位置**：`${GALGAME_MATERIALS:-~/.workbuddy/academic-galgame/materials}`
+  （`index.json` 元数据 + `<id>.txt` 提取后的正文）
+- **存档位置**：`${GALGAME_SAVE:-~/.workbuddy/academic-galgame/save.json}`（含 `{ state, battle }`）

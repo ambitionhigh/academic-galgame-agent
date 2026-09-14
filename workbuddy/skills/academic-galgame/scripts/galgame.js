@@ -21,6 +21,7 @@ import { dirname, join } from 'node:path'
 import { createState, migrateState, statusView, applyTeaching, addSubject, removeSubject, levelOf } from './engine/game.js'
 import { battleView, startBattle, applyBattle, checkUnlock } from './engine/battle.js'
 import { ENEMY_DEFS } from './engine/config.js'
+import { listMaterials, addMaterial, removeMaterial, setMaterialSubject, clearMaterials, retrieve, materialsDir } from './materials.js'
 
 const SAVE = process.env.GALGAME_SAVE
   || join(homedir(), '.workbuddy', 'academic-galgame', 'save.json')
@@ -81,7 +82,18 @@ const HELP = `学术galgame CLI
   battle-retreat                                  撤退
   reset                                           重置全部进度
 
+教材库（出题的真实依据）：
+  materials list                                  查看已导入的教材
+  materials add --path <文件或目录> [--subject 学科]   导入（支持 .md/.txt/.docx/.pdf，可传目录）
+  materials set-subject --id <id>|--name <名> [--subject 学科]   给教材指定/改学科
+  materials remove --id <id>|--name <名>          删除一份教材
+  materials clear                                 清空教材库
+
+检索：
+  retrieve --query <词> [--subject 学科]           在教材里检索真实片段
+
 存档：\${GALGAME_SAVE:-~/.workbuddy/academic-galgame/save.json}
+教材：\${GALGAME_MATERIALS:-~/.workbuddy/academic-galgame/materials}
 `
 
 function main() {
@@ -93,7 +105,12 @@ function main() {
   if (cmd === 'help' || a.help) { process.stdout.write(HELP); return }
 
   if (cmd === 'status') {
-    emit(view(state, battle, { cmd }))
+    // 一并带出教材库概况，老师一眼能看到有没有可用的真实依据
+    const mats = listMaterials()
+    emit(view(state, battle, {
+      cmd,
+      materials: { dir: mats.dir, count: mats.count, totalChars: mats.totalChars, items: mats.items },
+    }))
     return
   }
 
@@ -166,6 +183,56 @@ function main() {
     const had = battle
     const warn = saveAll(state, null)
     emit(view(state, null, { cmd, warn, cleared: !!had, message: had ? `已撤退（${had.subject}）` : '没有进行中的战斗' }))
+    return
+  }
+
+  /* ── 教材库 ── */
+  if (cmd === 'materials') {
+    const sub = a._[0] || 'list'
+    const key = (typeof a.id === 'string' && a.id) || (typeof a.name === 'string' && a.name) || ''
+    try {
+      if (sub === 'list') { emit({ cmd: `${cmd} ${sub}`, ...listMaterials() }); return }
+      if (sub === 'add') {
+        if (typeof a.path !== 'string') { emit({ ok: false, error: 'materials add 需要 --path <文件或目录>' }); process.exitCode = 1; return }
+        const r = addMaterial(a.path, typeof a.subject === 'string' ? a.subject : '')
+        emit({ cmd: `${cmd} ${sub}`, ...r })
+        if (!r.ok) process.exitCode = 1
+        return
+      }
+      if (sub === 'set-subject') {
+        if (!key) { emit({ ok: false, error: '需要 --id 或 --name 指定教材' }); process.exitCode = 1; return }
+        const r = setMaterialSubject(key, typeof a.subject === 'string' ? a.subject : '')
+        emit({ cmd: `${cmd} ${sub}`, ...r })
+        if (!r.ok) process.exitCode = 1
+        return
+      }
+      if (sub === 'remove') {
+        if (!key) { emit({ ok: false, error: '需要 --id 或 --name 指定教材' }); process.exitCode = 1; return }
+        const r = removeMaterial(key)
+        emit({ cmd: `${cmd} ${sub}`, ...r })
+        if (!r.ok) process.exitCode = 1
+        return
+      }
+      if (sub === 'clear') { emit({ cmd: `${cmd} ${sub}`, ...clearMaterials() }); return }
+      emit({ ok: false, error: `未知子命令：materials ${sub}（用 help 查看用法）` })
+      process.exitCode = 1
+    } catch (e) {
+      emit({ ok: false, error: String((e && e.message) || e) })
+      process.exitCode = 1
+    }
+    return
+  }
+
+  /* ── 教材检索（出题的真实依据） ── */
+  if (cmd === 'retrieve') {
+    const q = (typeof a.query === 'string' && a.query) || a._.join(' ')
+    if (!q) { emit({ ok: false, error: 'retrieve 需要 --query <词>' }); process.exitCode = 1; return }
+    try {
+      emit({ cmd, query: q, subject: typeof a.subject === 'string' ? a.subject : null, ...retrieve(q, typeof a.subject === 'string' ? a.subject : undefined) })
+    } catch (e) {
+      emit({ ok: false, error: String((e && e.message) || e) })
+      process.exitCode = 1
+    }
     return
   }
 
