@@ -1,0 +1,133 @@
+# API Key 获取与配置指南
+
+本项目**只从环境变量读取密钥**，代码里没有任何硬编码凭证。你需要在项目根目录建一个 `.env` 文件。
+
+> 🔒 `.env` 已被 `.gitignore` 忽略，**永远不会进入 Git 仓库**。也请不要把密钥写进任何 `.js` 文件、截图或聊天记录。
+
+```powershell
+Copy-Item .env.example .env
+notepad .env          # 填入下面的值
+npm run check:ark     # 自检：确认 Key + 接入点 + 网络都通
+npm start             # 通过后启动
+```
+
+---
+
+## 一、火山方舟（Ark）—— 必需
+
+模型后端，没有它也能跑，但会进入 **DEMO 模式**（只有内置示例提问，不是真模型）。
+
+### 需要拿到两个值
+
+| 变量 | 是什么 | 从哪拿 |
+|---|---|---|
+| `ARK_API_KEY` | 你的身份凭证 | 控制台 → **API Key 管理** |
+| `ARK_MODEL` | 调哪个模型（接入点 ID） | 控制台 → **在线推理** → 创建接入点 |
+
+### 步骤
+
+**1. 前置条件**
+- 火山引擎账号（手机号注册）
+- **完成实名认证** ← 没有它无法开通方舟，这是最常见的卡点
+
+**2. 开通方舟**
+打开 https://console.volcengine.com/ark → 首次进入按提示同意协议、开通服务。
+
+**3. 创建 API Key**
+左侧 **「API Key 管理」** → **创建 API Key** → 起个名字 → **立刻复制**。
+> ⚠️ 很多平台只在创建时完整显示一次。建议一个用途一个 Key，泄露时好单独吊销。
+
+**4. 创建推理接入点 → 拿到 `ARK_MODEL`**
+左侧 **「在线推理」** → **创建推理接入点**：
+- 名称随便填（如 `galgame-teacher`）
+- 模型：从下拉里选（豆包 Doubao 系列通常最常用、最划算）
+- 计费：**按量付费**（默认，适合试用）
+- 若提示模型未开通 → 先去左侧 **「开通管理」** 开通该模型
+
+创建完成后列表里会出现 **`ep-` 开头的接入点 ID**，复制它。
+> 也可以直接填模型 ID（部分模型支持），但**推荐用接入点 ID**，绑定明确、行为稳定。
+
+**5. 填入 `.env`**
+
+```ini
+ARK_API_KEY=ark-xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx-xxxxx
+ARK_MODEL=ep-20250101-xxxxx
+ARK_BASE_URL=https://ark.cn-beijing.volces.com/api/v3
+```
+
+**6. 自检**
+
+```powershell
+npm run check:ark
+```
+
+成功会打印：
+```
+✓ 调用成功！模型返回： "收到"
+```
+
+### 免费额度与计费
+
+左侧 **「免费推理额度」** 页面可查看账号的赠送额度（以页面实际显示为准）。计费按**输入 + 输出的 token** 数，用多少算多少；本项目单次对话在几千 token 量级。
+
+---
+
+## 二、ima 知识库 —— 可选
+
+默认情况下，老师从项目里的 `corpus/` 目录检索**本地教材**出题。如果你有腾讯 ima 知识库，可以用它替代：
+
+```ini
+IMA_API_KEY=你的 ima 开放接口 Key
+IMA_CLIENT_ID=你的 ima Client ID
+IMA_KB=默认知识库 ID
+# 可选：按学科指定不同知识库
+IMA_KB_MAP={"博弈论":"xxxx","社会科学":"yyyy"}
+```
+
+- 配置后 `ag_retrieve` 会**优先走 ima**，失败时自动回落到本地 `corpus/`。
+- 不配置则完全使用本地语料，**无需任何外部依赖**。
+- 若本地语料为空且未配 ima，检索会返回提示，老师仍可正常教学（只是没有外部依据）。
+
+---
+
+## 三、报错对照表
+
+`npm run check:ark` 的报错含义：
+
+| 报错关键字 | 真实原因 | 怎么修 |
+|---|---|---|
+| `401` / `AuthenticationError` / `invalid api key` | Key 错、没复制全，或 `.env` 没被读到 | 重新复制 Key；确认 `.env` 在**项目根目录**且文件名就是 `.env` |
+| `404` / `model not found` / `InvalidEndpoint` | `ARK_MODEL` 写错，或模型/接入点未开通 | 核对 `ep-` 后面的字符；去「开通管理」开通模型 |
+| `403` / `AccessDenied` | 账号未实名，或该模型/服务未开通 | 完成实名认证；开通对应模型 |
+| `429` / `RateLimit` / `quota` | 触发限流或额度用尽 | 稍后重试；或用尽后充值 |
+| `ECONNRESET` / `timeout` / `fetch failed` | 网络或代理问题 | 确认能访问 `ark.cn-beijing.volces.com` |
+| `ARK_NOT_CONFIGURED` | `.env` 根本没被读到 | 确认文件在项目根目录、名为 `.env`，且两个值都不为空 |
+
+---
+
+## 四、安全规范（重要）
+
+### 本项目怎么做的
+
+| 措施 | 实现 |
+|---|---|
+| 密钥只从环境变量读 | `src/agent/ark.js` 用 `process.env.ARK_API_KEY`，**代码里没有任何 Key** |
+| `.env` 不进仓库 | `.gitignore` 第 5 行包含 `.env` |
+| 提供模板而非真值 | 仓库里只有 `.env.example`（值为空） |
+| 存档与语料也不进仓库 | `.gitignore` 忽略 `data/` 与 `*.save.json` |
+
+### 你应该做的
+
+1. **只填 `.env`**，不要把 Key 写进 `.js`、README、issue 或截图。
+2. **不要提交 `.env`**：如果 `git status` 里出现了 `.env`，立刻停下并检查 `.gitignore`。
+3. **泄露就轮换**：一旦怀疑某 Key 外泄，去控制台删掉它、新建一个，然后更新 `.env` —— 旧的立即失效。
+4. **一个用途一个 Key**：便于单独吊销，缩小影响范围。
+5. **分享项目时**：给别人 `.env.example`，不要给 `.env`。
+
+### 验证仓库里没有密钥
+
+```powershell
+git check-ignore -v .env          # 应输出「.gitignore:5:.env  .env」
+git status --short                # 应没有 .env
+git log -p --all | Select-String "ark-"   # 应无命中（历史里也没有）
+```

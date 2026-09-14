@@ -17,7 +17,7 @@
 
 ![界面预览](./docs/screenshot.png)
 
-> 上图是 **DEMO 模式**（未配置 API Key）下的实际界面：左侧鲸鱼娘立绘逐帧动画，右侧学科熟练度与任务链，底部是苏格拉底式对话。
+> 上图是**接上火山方舟真模型**后的实际界面：右上角显示当前模型接入点，左侧鲸鱼娘立绘逐帧动画，右侧是学科熟练度/任务链/近期判定（都由模型真实作答后写入），底部是老师抛出的苏格拉底式情境提问。
 
 ---
 
@@ -55,6 +55,8 @@
 - Node.js **≥ 18**（用到全局 `fetch`）
 - 一个**火山方舟** API Key：在 [火山方舟控制台](https://console.volcengine.com/ark) 创建 API Key，并创建一个**在线推理接入点**拿到 `ep-xxxxxxxx` 形式的接入点 ID
 
+> 📖 **不知道这两个值怎么拿？** 看 [`docs/API-KEYS.md`](./docs/API-KEYS.md) —— 有控制台逐步操作、免费额度说明、报错对照表和安全规范。
+
 ### 2. 配置
 
 ```bash
@@ -63,7 +65,7 @@ cd academic-galgame-agent
 cp .env.example .env
 ```
 
-编辑 `.env`：
+编辑 `.env`（**这是唯一填写密钥的地方**，该文件已被 gitignore）：
 
 ```ini
 ARK_API_KEY=你的方舟 API Key
@@ -71,19 +73,31 @@ ARK_MODEL=你的推理接入点 ID 或模型名
 # ARK_BASE_URL 默认即 https://ark.cn-beijing.volces.com/api/v3
 ```
 
-### 3. 运行
+### 3. 自检
 
 ```bash
-node src/server/server.js
+npm run check:ark
+```
+
+这一步会**直接调用一次方舟**，明确告诉你 Key / 接入点 / 网络哪一环有问题：
+
+```
+✓ 调用成功！模型返回： "收到"
+```
+
+### 4. 运行
+
+```bash
+npm start          # 等同 node src/server/server.js
 # 打开 http://127.0.0.1:8787
 ```
 
 > **没有 API Key 也能跑**：未配置 `ARK_API_KEY` / `ARK_MODEL` 时自动进入 **DEMO 模式**——内置示例老师的苏格拉底提问，UI 与引擎（数值/战斗/存档）全部照常工作，方便先看效果或做 UI 开发。
 
-### 4. 自测（可选）
+### 5. 离线自测（可选）
 
 ```bash
-npm run smoke     # 引擎 + 检索 + 会话的离线自测
+npm run smoke      # 引擎 + 检索 + 会话的 12 项离线自测，不联网、不花 token
 ```
 
 ---
@@ -195,9 +209,14 @@ academic-galgame-agent/
 │       ├── app.js
 │       └── assets/whale-girl/    #   鲸鱼娘立绘（15 张精灵图）
 ├── corpus/                       # 本地教材语料（检索依据，可自由添加）
-├── docs/                         # 设计规格与迁移来源
-├── scripts/smoke.js              # 离线自测
-├── .env.example
+├── docs/                         # 设计规格 / API 指南 / 迁移来源
+│   ├── DESIGN-SPEC.md            #   设计规格 v2.0
+│   ├── API-KEYS.md               #   API Key 获取与安全指南
+│   └── socratic-questioning-framework.md  # 苏格拉底框架原文备份
+├── scripts/
+│   ├── smoke.js                  #   12 项离线自测
+│   └── check-ark.js              #   火山方舟配置体检
+├── .env.example                  #   环境变量模板（值为空）
 └── package.json                  # 零依赖
 ```
 
@@ -277,7 +296,24 @@ curl -s -X POST http://127.0.0.1:8787/api/chat \
 | `GALGAME_CORPUS` | | `./corpus` | 教材语料目录 |
 | `IMA_API_KEY` / `IMA_CLIENT_ID` / `IMA_KB` | | — | 可选：用 ima 知识库替代本地语料检索 |
 
-> **密钥安全**：`.env` 已在 `.gitignore` 中，请勿把 Key 写进代码或提交。
+### 🔒 密钥安全
+
+本项目**代码里没有任何硬编码密钥**，全部从环境变量读取：
+
+| 措施 | 实现 |
+|---|---|
+| 只从环境变量读 | `src/agent/ark.js` / `src/agent/retriever.js` 读 `process.env.*`，无任何字面量 Key |
+| `.env` 不进仓库 | `.gitignore` 已忽略 `.env` |
+| 只提供空模板 | 仓库里只有 `.env.example`（值为空） |
+
+你可以自己验证：
+
+```bash
+git check-ignore -v .env                    # 应输出 .gitignore 命中
+git log -p --all | Select-String "ark-"     # 应无命中
+```
+
+**详细获取步骤、报错对照与安全规范见 [`docs/API-KEYS.md`](./docs/API-KEYS.md)。**
 
 ---
 
