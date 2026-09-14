@@ -11,7 +11,8 @@
   "scripts": {
     "start": "node src/server/server.js",
     "dev": "node --watch src/server/server.js",
-    "smoke": "node scripts/smoke.js"
+    "smoke": "node scripts/smoke.js",
+    "check:ark": "node scripts/check-ark.js"
   },
   "keywords": [
     "ai-agent",
@@ -26,7 +27,7 @@
   ],
   "repository": {
     "type": "git",
-    "url": "https://github.com/your-name/academic-galgame-agent.git"
+    "url": "https://github.com/Ambitionhigh/academic-galgame-agent.git"
   },
   "files": [
     "src",
