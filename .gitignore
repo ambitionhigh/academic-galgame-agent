@@ -1,0 +1,18 @@
+# 依赖（本项目零运行时依赖，通常不存在）
+node_modules/
+
+# 环境变量与密钥
+.env
+.env.local
+
+# 运行时数据（存档）
+data/
+*.save.json
+
+# 编辑器 / 系统
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/*
+!.vscode/extensions.json
+*.log

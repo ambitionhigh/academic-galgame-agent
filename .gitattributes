@@ -1,0 +1,15 @@
+# 统一换行符，避免 Windows/macOS 协作时的 CRLF 抖动
+* text=auto eol=lf
+
+# 二进制资源不做换行转换
+*.png binary
+*.jpg binary
+*.ico binary
+
+# 明确 Markdown / JS 的换行
+*.md text eol=lf
+*.js text eol=lf
+*.css text eol=lf
+*.html text eol=lf
+*.json text eol=lf
+*.yml text eol=lf

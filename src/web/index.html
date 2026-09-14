@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>学术galgame · 鲸鱼娘老师</title>
+  <link rel="stylesheet" href="./styles.css" />
+</head>
+<body>
+  <div class="app">
+    <!-- 顶栏 -->
+    <header class="topbar">
+      <div class="brand">
+        <span class="brand-mark">🐋</span>
+        <div>
+          <h1>学术galgame</h1>
+          <p class="brand-sub">鲸鱼娘老师 · 苏格拉底式教学</p>
+        </div>
+      </div>
+      <div class="topbar-right">
+        <span id="mode-badge" class="badge">连接中…</span>
+        <span class="chip">Lv.<b id="level">1</b></span>
+        <button id="reset-btn" class="ghost-btn" title="重置进度">重置</button>
+      </div>
+    </header>
+
+    <main class="main">
+      <!-- 左：立绘舞台 -->
+      <section class="stage">
+        <div class="sprite-wrap">
+          <div id="sprite" class="sprite" aria-label="鲸鱼娘立绘"></div>
+          <div class="stage-glow"></div>
+        </div>
+        <div class="stage-caption">
+          <span id="whale-mood" class="mood">平静</span>
+          <span id="whale-tier" class="tier">好感档位 0</span>
+        </div>
+      </section>
+
+      <!-- 右：属性面板 -->
+      <aside class="panel">
+        <div class="stat-row">
+          <div class="stat">
+            <div class="stat-head"><span>HP</span><b id="hp-text">100 / 100</b></div>
+            <div class="bar"><i id="hp-bar" class="fill hp"></i></div>
+          </div>
+          <div class="stat">
+            <div class="stat-head"><span>好感度</span><b id="fav-text">0</b></div>
+            <div class="bar"><i id="fav-bar" class="fill fav"></i></div>
+          </div>
+        </div>
+
+        <h2 class="panel-title">学科熟练度</h2>
+        <ul id="subjects" class="subjects"></ul>
+
+        <h2 class="panel-title">派生能力</h2>
+        <div id="derived" class="derived"></div>
+
+        <h2 class="panel-title">近期记录</h2>
+        <ul id="log" class="log"></ul>
+      </aside>
+    </main>
+
+    <!-- 底：对话框 -->
+    <section class="dialogue">
+      <div id="messages" class="messages"></div>
+      <form id="chat-form" class="chat-form">
+        <input id="chat-input" type="text" autocomplete="off"
+               placeholder="向鲸鱼娘回答，或说「开始教学 / 复习博弈论 / 挑战领主」…" />
+        <button id="send-btn" type="submit">发送</button>
+      </form>
+      <p class="hint">提示：老师默认用苏格拉底式提问，不会直接给答案。</p>
+    </section>
+  </div>
+
+  <!-- 战斗浮层 -->
+  <div id="battle" class="battle hidden">
+    <div class="battle-card">
+      <div class="enemy-head">
+        <span id="enemy-name" class="enemy-name">魔将</span>
+        <span id="enemy-title" class="enemy-title">错误认知的化身</span>
+      </div>
+      <div class="stat-head"><span>敌方 HP</span><b id="enemy-hp-text">15 / 15</b></div>
+      <div class="bar enemy"><i id="enemy-hp-bar" class="fill enemy-fill"></i></div>
+      <div class="battle-meta">
+        <span id="battle-subject" class="chip">学科</span>
+        <span id="battle-difficulty" class="chip">难度 1</span>
+        <span id="battle-streak" class="chip">连对 0</span>
+      </div>
+      <button id="retreat-btn" class="ghost-btn">撤退</button>
+    </div>
+  </div>
+
+  <script type="module" src="./app.js"></script>
+</body>
+</html>

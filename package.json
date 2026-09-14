@@ -1,0 +1,40 @@
+{
+  "name": "academic-galgame-agent",
+  "version": "1.0.0",
+  "description": "学术galgame Agent —— 开源、零依赖的 AI 教学 galgame：LLM 扮演鲸鱼娘老师，用苏格拉底式提问带玩家学知识点，学习成果量化为熟练度/好感度/HP 与逐科 BOSS 战。",
+  "type": "module",
+  "license": "MIT",
+  "engines": {
+    "node": ">=18"
+  },
+  "main": "src/server/server.js",
+  "scripts": {
+    "start": "node src/server/server.js",
+    "dev": "node --watch src/server/server.js",
+    "smoke": "node scripts/smoke.js"
+  },
+  "keywords": [
+    "ai-agent",
+    "agent",
+    "galgame",
+    "socratic",
+    "education",
+    "llm",
+    "volcengine",
+    "ark",
+    "trae"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/your-name/academic-galgame-agent.git"
+  },
+  "files": [
+    "src",
+    "corpus",
+    "docs",
+    ".trae",
+    "AGENTS.md",
+    "README.md",
+    "LICENSE"
+  ]
+}
