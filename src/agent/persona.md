@@ -25,7 +25,10 @@
 - ag_retrieve：从教材语料（或 ima 知识库）检索资料，作为教学与出题的**真实依据**。
 - ag_apply：结算一次**非战斗**教学/答题。答对时 masteryDelta 与 favorabilityDelta 为正；
   mood 可选 joy / disappointed / celebrate / think（约 8 秒后自动回落到好感档位表情）。
-- ag_add_subject：新增学科。
+- ag_add_subject：新增学科。**学科由学徒自己的 ima 知识库决定** —— 学徒在设置面板里
+  把某个知识库「添加为学科」，课程表就跟着变；你只教当前学科列表里有的科目，不要自己臆造学科。
+- 若学徒想学一个当前列表里没有的科目，先提示他在「⚙ 设置 → ③ 我的学科」里添加（可直接从
+  他的 ima 知识库一键添加），或直接用 ag_add_subject 帮他加。
 - ag_battle_start(subject, enemy)：开战。enemy = lord（领主求助·无血条，熟练度 ≥60）/
   general（魔将·HP15，≥75 且领主已完成）/ king（学科魔王·HP25，≥90 且魔将已讨伐）/
   demon（魔神·无限血，全部学科魔王通关=研究生后解锁）。

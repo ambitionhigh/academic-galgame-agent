@@ -33,6 +33,9 @@ const el = {
   cfgTestArk: $('cfg-test-ark'), cfgArkResult: $('cfg-ark-result'),
   cfgTestIma: $('cfg-test-ima'), cfgImaResult: $('cfg-ima-result'),
   cfgListKb: $('cfg-list-kb'), cfgKbRows: $('cfg-kb-rows'),
+  cfgNewSubject: $('cfg-new-subject'), cfgAddSubject: $('cfg-add-subject'),
+  cfgSubjectResult: $('cfg-subject-result'), cfgSubjectList: $('cfg-subject-list'),
+  quickAddSubject: $('quick-add-subject'),
   cfgFiles: $('cfg-files'), cfgFileList: $('cfg-file-list'), cfgDrop: $('cfg-drop'),
   cfgClearFiles: $('cfg-clear-files'), cfgFileResult: $('cfg-file-result'),
   cfgSave: $('cfg-save'), cfgClear: $('cfg-clear'),
@@ -246,6 +249,7 @@ async function openSettings() {
   el.modal.classList.remove('hidden')
   await loadSubjects()
   renderKbRows()
+  renderSubjectList()
   await loadCorpus()
 }
 function closeSettings() { el.modal.classList.add('hidden') }
@@ -293,33 +297,111 @@ function writeKbMap(map) {
   el.cfgImaKbMap.value = Object.keys(map).length ? JSON.stringify(map) : ''
 }
 
-const KB_HINT = '<p class="kb-hint">点「拉取知识库列表」后，这里会按学科列出下拉框 —— 直接用<b>名称</b>选即可，ID 自动填。</p>'
+const KB_HINT = '<p class="kb-hint">点「拉取知识库列表」后，这里会列出你的知识库 —— '
+  + '点右侧 <b>「+ 添加为学科」</b> 就能把某个知识库变成一门可学的学科（知识库绑定会自动填好）。</p>'
 
+/** ② 知识库列表：每个知识库可一键「添加为学科」 */
 function renderKbRows() {
-  const map = currentKbMap()
-  const subjects = cachedSubjects.length ? cachedSubjects : Object.keys(map)
-  if (cachedKbs.length === 0 || subjects.length === 0) {
+  if (cachedKbs.length === 0) {
     el.cfgKbRows.innerHTML = KB_HINT
     return
   }
   el.cfgKbRows.innerHTML = ''
-  for (const subj of subjects) {
-    const opts = ['<option value="">（不用知识库）</option>']
-      .concat(cachedKbs.map((k) => `<option value="${escapeHtml(k.id)}"${map[subj] === k.id ? ' selected' : ''}>${escapeHtml(k.name)}</option>`))
-      .join('')
-    const row = document.createElement('label')
-    row.className = 'kb-row'
-    row.innerHTML = `<span>${escapeHtml(subj)}</span><select data-subject="${escapeHtml(subj)}">${opts}</select>`
+  for (const kb of cachedKbs) {
+    const isSubject = cachedSubjects.includes(kb.name)
+    const row = document.createElement('div')
+    row.className = 'kb-item'
+    row.innerHTML = `<span class="kb-name">${escapeHtml(kb.name)}</span>`
+      + (isSubject
+        ? '<span class="already">✓ 已是学科</span>'
+        : `<button class="add-subject" data-name="${escapeHtml(kb.name)}" data-id="${escapeHtml(kb.id)}">+ 添加为学科</button>`)
     el.cfgKbRows.appendChild(row)
   }
-  el.cfgKbRows.querySelectorAll('select').forEach((sel) => {
+  el.cfgKbRows.querySelectorAll('.add-subject').forEach((btn) => {
+    btn.addEventListener('click', () => addSubject(btn.dataset.name, btn.dataset.id))
+  })
+}
+
+/** ③ 我的学科：手动增删 + 逐个绑定知识库 */
+function renderSubjectList() {
+  const map = currentKbMap()
+  el.cfgSubjectList.innerHTML = ''
+  if (cachedSubjects.length === 0) {
+    const li = document.createElement('li')
+    li.innerHTML = '<span class="s-name" style="color:var(--muted)">还没有学科 —— 拉取知识库列表后点「+ 添加为学科」，或在上面手动添加</span>'
+    el.cfgSubjectList.appendChild(li)
+    return
+  }
+  for (const name of cachedSubjects) {
+    const opts = ['<option value="">未绑定知识库</option>']
+      .concat(cachedKbs.map((k) => `<option value="${escapeHtml(k.id)}"${map[name] === k.id ? ' selected' : ''}>${escapeHtml(k.name)}</option>`))
+      .join('')
+    const li = document.createElement('li')
+    li.innerHTML = `<span class="s-name">${escapeHtml(name)}</span>
+      <select data-name="${escapeHtml(name)}" title="把这个学科绑定到某个知识库">${opts}</select>
+      <button class="s-del" data-name="${escapeHtml(name)}" title="移除该学科">×</button>`
+    el.cfgSubjectList.appendChild(li)
+  }
+  el.cfgSubjectList.querySelectorAll('select').forEach((sel) => {
     sel.addEventListener('change', () => {
       const m = currentKbMap()
-      if (sel.value) m[sel.dataset.subject] = sel.value
-      else delete m[sel.dataset.subject]
+      if (sel.value) m[sel.dataset.name] = sel.value
+      else delete m[sel.dataset.name]
       writeKbMap(m)
+      persistCreds(readForm())
+      showResult(el.cfgSubjectResult, 'ok', sel.value ? `「${sel.dataset.name}」已绑定知识库` : '已解除绑定')
     })
   })
+  el.cfgSubjectList.querySelectorAll('.s-del').forEach((btn) => {
+    btn.addEventListener('click', () => removeSubject(btn.dataset.name))
+  })
+}
+
+/** 添加学科；给了 kbId 就同时绑定知识库（ima 驱动的核心操作） */
+async function addSubject(name, kbId) {
+  const n = String(name || '').trim()
+  if (!n) return showResult(el.cfgSubjectResult, 'err', '请输入学科名')
+  showResult(el.cfgSubjectResult, 'pending', `正在添加学科「${n}」…`)
+  try {
+    await api('/api/subjects', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ name: n }),
+    })
+    if (kbId) {
+      const m = currentKbMap()
+      m[n] = kbId
+      writeKbMap(m)
+      persistCreds(readForm())
+    }
+    await loadSubjects()
+    renderKbRows()
+    renderSubjectList()
+    await refreshHealth()
+    try { renderState(await api('/api/state')) } catch { /* 忽略 */ }
+    showResult(el.cfgSubjectResult, 'ok', `✓ 已添加学科「${n}」${kbId ? '并绑定知识库' : ''}`)
+    el.cfgNewSubject.value = ''
+  } catch (e) {
+    showResult(el.cfgSubjectResult, 'err', `✗ ${e.message}`)
+  }
+}
+
+async function removeSubject(name) {
+  if (!confirm(`确定移除学科「${name}」吗？\n该学科的熟练度与任务链会一并删除。`)) return
+  try {
+    await api(`/api/subjects?name=${encodeURIComponent(name)}`, { method: 'DELETE' })
+    const m = currentKbMap()
+    delete m[name]
+    writeKbMap(m)
+    persistCreds(readForm())
+    await loadSubjects()
+    renderKbRows()
+    renderSubjectList()
+    try { renderState(await api('/api/state')) } catch { /* 忽略 */ }
+    showResult(el.cfgSubjectResult, 'ok', `已移除「${name}」`)
+  } catch (e) {
+    showResult(el.cfgSubjectResult, 'err', `✗ ${e.message}`)
+  }
 }
 
 async function loadSubjects() {
@@ -335,8 +417,9 @@ async function loadKbList() {
     const r = await fetch('/api/ima/kbs', { method: 'POST', headers, body: '{}' }).then((x) => x.json())
     if (!r.ok) return showResult(el.cfgImaResult, 'err', `✗ ${r.error || '拉取失败'}`)
     cachedKbs = r.items || []
-    showResult(el.cfgImaResult, 'ok', `✓ 拉到 ${cachedKbs.length} 个知识库，请按学科选择`)
+    showResult(el.cfgImaResult, 'ok', `✓ 拉到 ${cachedKbs.length} 个知识库 —— 点「+ 添加为学科」即可开课`)
     renderKbRows()
+    renderSubjectList()
   } catch (e) { showResult(el.cfgImaResult, 'err', `✗ ${e.message}`) }
 }
 
@@ -524,6 +607,28 @@ el.cfgClear.addEventListener('click', async () => {
 el.cfgTestArk.addEventListener('click', testArk)
 el.cfgTestIma.addEventListener('click', testIma)
 el.cfgListKb.addEventListener('click', loadKbList)
+el.cfgAddSubject.addEventListener('click', () => addSubject(el.cfgNewSubject.value))
+el.cfgNewSubject.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') { e.preventDefault(); addSubject(el.cfgNewSubject.value) }
+})
+if (el.quickAddSubject) {
+  el.quickAddSubject.addEventListener('click', async () => {
+    const name = prompt('新学科名（建议与你的 ima 知识库同名）：')
+    if (!name) return
+    try {
+      await api('/api/subjects', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ name }),
+      })
+      cachedSubjects = Object.keys((await api('/api/state')).subjects || {})
+      renderState(await api('/api/state'))
+      pushMessage('系统', `已添加学科「${name.trim()}」，可以开始教学了。`, 'sys')
+    } catch (e) {
+      pushMessage('系统', `添加学科失败：${e.message}`, 'sys')
+    }
+  })
+}
 el.cfgFiles.addEventListener('change', (e) => uploadFiles(e.target.files))
 el.cfgClearFiles.addEventListener('click', async () => {
   try {

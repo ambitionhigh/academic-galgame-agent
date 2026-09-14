@@ -97,7 +97,12 @@ html, body {
   padding: 14px 16px; display: flex; flex-direction: column; gap: 10px;
   max-height: 560px; overflow-y: auto;
 }
-.panel-title { margin: 6px 0 0; font-size: 13px; color: var(--cyan); font-weight: 600; letter-spacing: 0.4px; }
+.panel-title { margin: 6px 0 0; font-size: 13px; color: var(--cyan); font-weight: 600; letter-spacing: 0.4px; display: flex; align-items: center; gap: 8px; }
+.mini-btn {
+  border: 1px solid var(--line); background: transparent; color: var(--cyan); cursor: pointer;
+  font-size: 12px; line-height: 1; padding: 2px 7px; border-radius: 6px; transition: all 0.15s ease;
+}
+.mini-btn:hover { background: rgba(87, 224, 255, 0.12); border-color: var(--cyan-dim); }
 
 .stat-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 .stat { display: flex; flex-direction: column; gap: 5px; }
@@ -294,3 +299,43 @@ html, body {
   font-size: 15px; line-height: 1; padding: 2px 4px; border-radius: 6px;
 }
 .file-list .f-del:hover { color: var(--red); background: rgba(255, 107, 129, 0.12); }
+
+/* 通用行内输入 */
+.inline-input {
+  flex: 1; min-width: 150px; padding: 7px 10px; border-radius: 8px; font-size: 12.5px;
+  border: 1px solid var(--line); background: rgba(0, 0, 0, 0.3); color: var(--text); outline: none;
+}
+.inline-input:focus { border-color: var(--cyan-dim); box-shadow: 0 0 0 3px rgba(87, 224, 255, 0.1); }
+
+/* 知识库列表：每项可「添加为学科」 */
+.kb-item {
+  display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 8px;
+  border: 1px solid var(--line); border-radius: 8px; padding: 6px 9px; font-size: 12px;
+  background: rgba(255, 255, 255, 0.02); margin-top: 5px;
+}
+.kb-item .kb-name { color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.kb-item .add-subject {
+  border: 1px solid var(--line); background: transparent; color: var(--cyan); cursor: pointer;
+  font-size: 11.5px; padding: 3px 10px; border-radius: 999px; transition: all 0.15s ease;
+}
+.kb-item .add-subject:hover { background: rgba(87, 224, 255, 0.1); border-color: var(--cyan-dim); }
+.kb-item .already { font-size: 11.5px; color: var(--gold); }
+
+/* 学科列表 */
+.subject-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.subject-list li {
+  display: grid; grid-template-columns: 1fr 128px 28px; align-items: center; gap: 8px;
+  border: 1px solid var(--line); border-radius: 8px; padding: 6px 9px; font-size: 12px;
+  background: rgba(255, 255, 255, 0.02);
+}
+.subject-list .s-name { color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.subject-list .s-name .tag { color: var(--muted); font-size: 11px; margin-left: 6px; }
+.subject-list select {
+  padding: 4px 6px; border-radius: 6px; font-size: 11.5px; outline: none;
+  border: 1px solid var(--line); background: rgba(0, 0, 0, 0.3); color: var(--text);
+}
+.subject-list .s-del {
+  border: none; background: transparent; color: var(--muted); cursor: pointer;
+  font-size: 15px; line-height: 1; padding: 2px 4px; border-radius: 6px;
+}
+.subject-list .s-del:hover { color: var(--red); background: rgba(255, 107, 129, 0.12); }

@@ -125,7 +125,21 @@ export function applyTeaching(state, args = {}) {
 export function addSubject(state, name) {
   const n = String(name || '').trim()
   if (!n) return { ok: false, error: '学科名不能为空' }
-  if (!state.subjects[n]) state.subjects[n] = newSubject()
+  if (n.length > 40) return { ok: false, error: '学科名过长（≤40 字）' }
+  if (state.subjects[n]) return { ok: false, error: `学科「${n}」已存在` }
+  state.subjects[n] = newSubject()
+  logNote(state, `新增学科：${n}`, n)
+  return { ok: true, subjects: state.subjects }
+}
+
+/** 删除学科（连带其熟练度与任务链）；至少保留一个 */
+export function removeSubject(state, name) {
+  const n = String(name || '').trim()
+  if (!n) return { ok: false, error: '学科名不能为空' }
+  if (!state.subjects[n]) return { ok: false, error: `没有这个学科：${n}` }
+  if (Object.keys(state.subjects).length <= 1) return { ok: false, error: '至少要保留一个学科' }
+  delete state.subjects[n]
+  logNote(state, `移除学科：${n}`, null)
   return { ok: true, subjects: state.subjects }
 }
 

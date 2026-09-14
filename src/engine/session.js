@@ -1,7 +1,7 @@
 // 会话层：持有「存档状态 + 当前战斗态」，把引擎能力暴露成一组工具方法。
 // agent 层只通过这里改动游戏，不直接碰 state/battle 内部结构。
 import { Storage } from './storage.js'
-import { createState, statusView, applyTeaching, addSubject } from './game.js'
+import { createState, statusView, applyTeaching, addSubject, removeSubject as dropSubject } from './game.js'
 import { startBattle, applyBattle, battleView } from './battle.js'
 
 export class GameSession {
@@ -29,8 +29,18 @@ export class GameSession {
 
   addSubject(name) {
     const r = addSubject(this.state, name)
-    this.save()
-    return r
+    if (r.ok) this.save()
+    return { ...r, state: this.status() }
+  }
+
+  /** 删除学科；若该学科正有进行中的战斗，一并清掉 */
+  removeSubject(name) {
+    const r = dropSubject(this.state, name)
+    if (r.ok) {
+      if (this.battle && this.battle.subject === name) this.battle = null
+      this.save()
+    }
+    return { ...r, state: this.status() }
   }
 
   battleStart(subject, enemy) {

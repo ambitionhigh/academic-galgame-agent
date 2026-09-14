@@ -262,6 +262,20 @@ const server = createServer(async (req, res) => {
       return sendJson(res, 200, { ok: true, state: entry.session.status() })
     }
 
+    // ── 学科管理：用户可以自主增删（通常按自己的 ima 知识库来建）──
+    if (pathname === '/api/subjects' && req.method === 'POST') {
+      const body = await readBody(req)
+      const entry = sessionFor(req, res)
+      const r = entry.session.addSubject(body.name)
+      return sendJson(res, r.ok ? 200 : 400, { ...r, subjects: Object.keys(entry.session.state.subjects) })
+    }
+
+    if (pathname === '/api/subjects' && req.method === 'DELETE') {
+      const entry = sessionFor(req, res)
+      const r = entry.session.removeSubject(url.searchParams.get('name') || '')
+      return sendJson(res, r.ok ? 200 : 400, { ...r, subjects: Object.keys(entry.session.state.subjects) })
+    }
+
     // 连通性测试：用请求头里的凭证真调一次，判断填得对不对
     if (pathname === '/api/test' && req.method === 'POST') {
       const body = await readBody(req)

@@ -51,7 +51,9 @@
           </div>
         </div>
 
-        <h2 class="panel-title">学科熟练度</h2>
+        <h2 class="panel-title">学科熟练度
+          <button id="quick-add-subject" class="mini-btn" title="添加学科（建议用你的 ima 知识库名）">＋</button>
+        </h2>
         <ul id="subjects" class="subjects"></ul>
 
         <h2 class="panel-title">派生能力</h2>
@@ -130,16 +132,25 @@
       </div>
 
       <div id="cfg-kb-rows" class="kb-rows">
-        <p class="kb-hint">点「拉取知识库列表」后，这里会按学科列出下拉框 —— 直接用<b>名称</b>选即可，ID 自动填。</p>
+        <p class="kb-hint">点「拉取知识库列表」后，这里会列出你的知识库 ——
+          点右侧 <b>「+ 添加为学科」</b> 就能把某个知识库变成一门可学的学科（知识库绑定会自动填好）。</p>
       </div>
 
       <details class="adv">
-        <summary>高级：直接编辑映射 JSON</summary>
+        <summary>高级：直接编辑「学科 → 知识库」映射 JSON</summary>
         <textarea id="cfg-ima-kb-map" rows="3" spellcheck="false"
-          placeholder='{"博弈论":"kb-id-1","社会科学":"kb-id-2"}'></textarea>
+          placeholder='{"博弈论大学习":"kb-id-1","社会科学":"kb-id-2"}'></textarea>
       </details>
 
-      <h3>③ 我的教材（自己的 .md / .txt · 可选）<span class="req">连 ima 都不用</span></h3>
+      <h3>③ 我的学科<span class="req">按你的 ima 知识库来建</span></h3>
+      <div class="test-row">
+        <input id="cfg-new-subject" class="inline-input" placeholder="新学科名，如「博弈论大学习」" />
+        <button id="cfg-add-subject" class="ghost-btn">+ 添加学科</button>
+        <span id="cfg-subject-result" class="test-result"></span>
+      </div>
+      <ul id="cfg-subject-list" class="subject-list"></ul>
+
+      <h3>④ 我的教材（自己的 .md / .txt / .docx · 可选）<span class="req">连 ima 都不用</span></h3>
       <div id="cfg-drop" class="drop-zone">
         <input id="cfg-files" type="file" multiple
           accept=".md,.markdown,.txt,.docx,.pdf,text/plain,text/markdown" />
