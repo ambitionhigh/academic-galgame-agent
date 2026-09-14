@@ -166,13 +166,18 @@ ${renderState(this.session.status())}
 先做简短问候，提醒今日该复习的知识点，再抛一个开放性问题开始教学。`
   }
 
-  /** 执行一次工具调用，返回可序列化结果 */
-  async execTool(name, args = {}) {
+  /**
+   * 执行一次工具调用，返回可序列化结果。
+   * @param {string} name 工具名
+   * @param {object} args 工具参数
+   * @param {object} [creds] 本次请求携带的凭证（BYOK）
+   */
+  async execTool(name, args = {}, creds = {}) {
     switch (name) {
       case 'ag_status':
         return this.session.status()
       case 'ag_retrieve':
-        return await retrieve(args.query, args.subject)
+        return await retrieve(args.query, args.subject, creds)
       case 'ag_apply':
         return this.session.teaching(args)
       case 'ag_add_subject':
@@ -191,14 +196,15 @@ ${renderState(this.session.status())}
   /**
    * 处理一条玩家消息。
    * @param {string} message
+   * @param {object} [creds] 本次请求携带的凭证（BYOK）：arkApiKey/arkModel/arkBaseUrl/imaApiKey/imaClientId/imaKbMap
    * @returns {Promise<{reply:string, events:Array, state:object, demo:boolean}>}
    */
-  async say(message) {
+  async say(message, creds = {}) {
     const text = String(message || '').trim()
     const events = []
 
-    // ── demo 模式：无方舟凭证时，用示例提问驱动界面 ──
-    if (!isArkConfigured()) {
+    // ── demo 模式：既没有请求凭证、服务端也没配凭证时，用示例提问驱动界面 ──
+    if (!isArkConfigured(creds)) {
       const reply = DEMO_PROMPTS[this.demoIndex % DEMO_PROMPTS.length]
       this.demoIndex++
       // 轮换学科结算，让 UI 的熟练度条也能看到变化
@@ -223,6 +229,7 @@ ${renderState(this.session.status())}
         tools: TOOLS,
         toolChoice: isLastRound ? 'none' : 'auto',
         temperature: 0.8,
+        creds,
       })
 
       if (!toolCalls || toolCalls.length === 0) {
@@ -239,7 +246,7 @@ ${renderState(this.session.status())}
         try { args = fn.arguments ? JSON.parse(fn.arguments) : {} } catch { args = {} }
         let result
         try {
-          result = await this.execTool(fn.name, args)
+          result = await this.execTool(fn.name, args, creds)
         } catch (e) {
           result = { ok: false, error: String((e && e.message) || e) }
         }

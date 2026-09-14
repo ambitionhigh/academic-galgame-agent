@@ -2,35 +2,47 @@
 // 使用方舟的 OpenAI 兼容接口：POST {baseUrl}/chat/completions
 // 只用全局 fetch，无第三方依赖。
 //
-// 需要的环境变量：
-//   ARK_API_KEY  方舟 API Key（必需）
-//   ARK_MODEL    推理接入点 ID 或模型名（必需），如 ep-xxxxxxxx 或 doubao-xxx
-//   ARK_BASE_URL 可选，默认 https://ark.cn-beijing.volces.com/api/v3
+// 【BYOK 自带密钥】凭证优先取「本次请求传入的 creds」，其次回落到服务端环境变量：
+//   creds.arkApiKey / creds.arkModel / creds.arkBaseUrl
+//   ← 环境变量 ARK_API_KEY / ARK_MODEL / ARK_BASE_URL
+// 公开部署时**不要**在服务端配置凭证，让每位访客用自己的 Key（服务端不存储任何凭证）。
 
 const DEFAULT_BASE_URL = 'https://ark.cn-beijing.volces.com/api/v3'
 
-export function arkSettings() {
+/**
+ * 解析生效的方舟配置。
+ * @param {{arkApiKey?:string, arkModel?:string, arkBaseUrl?:string}} [creds] 本次请求携带的凭证
+ */
+export function arkSettings(creds = {}) {
   return {
-    baseUrl: (process.env.ARK_BASE_URL || DEFAULT_BASE_URL).replace(/\/+$/, ''),
-    apiKey: process.env.ARK_API_KEY || '',
-    model: process.env.ARK_MODEL || '',
+    baseUrl: (creds.arkBaseUrl || process.env.ARK_BASE_URL || DEFAULT_BASE_URL).replace(/\/+$/, ''),
+    apiKey: creds.arkApiKey || process.env.ARK_API_KEY || '',
+    model: creds.arkModel || process.env.ARK_MODEL || '',
+    // 凭证来源，便于 UI 提示「你在用自己填的 Key」还是「服务端预置」
+    source: creds.arkApiKey ? 'client' : (process.env.ARK_API_KEY ? 'server' : 'none'),
   }
 }
 
 /** 是否已配置方舟（未配置时上层进入 demo 模式） */
-export function isArkConfigured() {
-  const s = arkSettings()
+export function isArkConfigured(creds) {
+  const s = arkSettings(creds)
   return Boolean(s.apiKey && s.model)
+}
+
+/** 只返回不含密钥的可公开信息 */
+export function describeArk(creds) {
+  const s = arkSettings(creds)
+  return { configured: Boolean(s.apiKey && s.model), model: s.model || null, baseUrl: s.baseUrl, source: s.source }
 }
 
 /**
  * 调用方舟对话补全。
  * @param {Array<object>} messages OpenAI 格式消息数组
- * @param {{tools?:Array, toolChoice?:string, temperature?:number, timeoutMs?:number}} [options]
+ * @param {{creds?:object, tools?:Array, toolChoice?:string, temperature?:number, timeoutMs?:number}} [options]
  * @returns {Promise<{content:string, toolCalls:Array, raw:object}>}
  */
 export async function arkChat(messages, options = {}) {
-  const s = arkSettings()
+  const s = arkSettings(options.creds || {})
   if (!s.apiKey || !s.model) throw new Error('ARK_NOT_CONFIGURED')
 
   const body = { model: s.model, messages }

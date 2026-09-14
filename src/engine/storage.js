@@ -33,3 +33,26 @@ export class Storage {
     }
   }
 }
+
+/**
+ * 内存存档：每位访客一份，进程退出即消失。
+ * 公开部署（多人访问）时用它，避免所有人的进度互相覆盖；也是 BYOK 模式下的默认选择。
+ */
+export class MemoryStorage {
+  constructor(initial = null) {
+    this.data = initial
+  }
+
+  load() {
+    return this.data ? migrateState(JSON.parse(JSON.stringify(this.data))) : createState()
+  }
+
+  save(state) {
+    try {
+      this.data = JSON.parse(JSON.stringify(state))
+      return true
+    } catch {
+      return false
+    }
+  }
+}

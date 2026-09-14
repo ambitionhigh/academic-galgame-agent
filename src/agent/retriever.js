@@ -74,17 +74,14 @@ export function localCorpusRetrieve(query, subject) {
   return { ok: items.length > 0, source: 'corpus', count: items.length, items }
 }
 
-/** 可选：ima 知识库检索（配置 IMA_API_KEY + IMA_CLIENT_ID + IMA_KB 时启用） */
-async function imaRetrieve(query, subject) {
-  const apiKey = process.env.IMA_API_KEY
-  const clientId = process.env.IMA_CLIENT_ID
-  let kb = process.env.IMA_KB || ''
-  try {
-    if (!kb && process.env.IMA_KB_MAP) {
-      const map = JSON.parse(process.env.IMA_KB_MAP)
-      kb = map[subject] || Object.values(map)[0] || ''
-    }
-  } catch { /* 忽略非法 JSON */ }
+/** 可选：ima 知识库检索（凭证优先取本次请求传入的 creds，其次环境变量） */
+async function imaRetrieve(query, subject, creds = {}) {
+  const apiKey = creds.imaApiKey || process.env.IMA_API_KEY || ''
+  const clientId = creds.imaClientId || process.env.IMA_CLIENT_ID || ''
+  const rawMap = creds.imaKbMap || process.env.IMA_KB_MAP || ''
+  let map = {}
+  try { map = typeof rawMap === 'string' ? JSON.parse(rawMap || '{}') : (rawMap || {}) } catch { map = {} }
+  const kb = map[subject] || Object.values(map)[0] || creds.imaKb || process.env.IMA_KB || ''
   if (!apiKey || !clientId || !kb) return null
 
   const headers = { 'content-type': 'application/json', 'ima-openapi-clientid': clientId, 'ima-openapi-apikey': apiKey }
@@ -94,7 +91,7 @@ async function imaRetrieve(query, subject) {
     body: JSON.stringify({ knowledge_base_id: kb, query: String(query || ''), limit: 6 }),
   })
   const sj = await searchRes.json()
-  if (sj.code !== 0) return { ok: false, source: 'ima', items: [], error: sj.msg }
+  if (sj.code !== 0) return { ok: false, apiOk: false, source: 'ima', items: [], error: sj.msg }
   const hits = (sj.data && sj.data.info_list) || []
   const items = []
   for (const h of hits.slice(0, 2)) {
@@ -113,20 +110,51 @@ async function imaRetrieve(query, subject) {
     }
     items.push(entry)
   }
-  return { ok: items.length > 0, source: 'ima', count: hits.length, items }
+  return { ok: items.length > 0, apiOk: true, source: 'ima', count: hits.length, items }
 }
 
 /**
- * 统一检索入口：优先 ima（若配置），否则本地语料。
+ * 统一检索入口：优先 ima（若本次请求带了凭证或服务端配了），否则本地语料。
  * @param {string} query 查询词
  * @param {string} [subject] 学科（用于选择知识库）
+ * @param {{imaApiKey?:string, imaClientId?:string, imaKbMap?:string, imaKb?:string}} [creds] 本次请求携带的 ima 凭证
  */
-export async function retrieve(query, subject) {
+export async function retrieve(query, subject, creds = {}) {
   try {
-    const viaIma = await imaRetrieve(query, subject)
+    const viaIma = await imaRetrieve(query, subject, creds)
     if (viaIma) return viaIma
   } catch (e) {
     // ima 失败则回落到本地语料
   }
   return localCorpusRetrieve(query, subject)
+}
+
+/** 该次请求是否会走 ima（供 UI 提示用） */
+export function imaEnabled(creds = {}) {
+  const apiKey = creds.imaApiKey || process.env.IMA_API_KEY || ''
+  const clientId = creds.imaClientId || process.env.IMA_CLIENT_ID || ''
+  return Boolean(apiKey && clientId)
+}
+
+/** 直接用给定凭证测一次 ima 检索（给 UI 的「测试连接」按钮用；不回落到本地语料）
+ *  判定标准：接口能正常应答即算连通（命中 0 条只是该测试词没匹配到，不算失败）。 */
+export async function testIma(creds = {}) {
+  if (!imaEnabled(creds)) {
+    return { ok: false, error: '未填写 ima API Key 或 Client ID' }
+  }
+  try {
+    const r = await imaRetrieve('纳什均衡', undefined, creds)
+    if (!r) return { ok: false, error: '未指定知识库：请填写「学科→知识库ID」映射（JSON）' }
+    if (r.apiOk === false) return { ok: false, error: r.error || 'ima 接口返回错误' }
+    return {
+      ...r,
+      ok: true,
+      count: r.count || 0,
+      note: (r.count || 0) > 0
+        ? `连接正常，命中 ${r.count} 条`
+        : '连接正常（该测试词暂无命中，可换关键词再试）',
+    }
+  } catch (e) {
+    return { ok: false, error: String((e && e.message) || e) }
+  }
 }

@@ -20,6 +20,7 @@
       <div class="topbar-right">
         <span id="mode-badge" class="badge">连接中…</span>
         <span class="chip">Lv.<b id="level">1</b></span>
+        <button id="settings-btn" class="ghost-btn" title="填写你自己的方舟 / ima 凭证">⚙ 设置</button>
         <button id="reset-btn" class="ghost-btn" title="重置进度">重置</button>
       </div>
     </header>
@@ -88,6 +89,52 @@
         <span id="battle-streak" class="chip">连对 0</span>
       </div>
       <button id="retreat-btn" class="ghost-btn">撤退</button>
+    </div>
+  </div>
+
+  <!-- 设置面板 · BYOK：凭证只保存在你的浏览器里 -->
+  <div id="settings" class="modal hidden">
+    <div class="modal-card">
+      <div class="modal-head">
+        <h2>⚙ 设置 · 自带密钥</h2>
+        <button id="settings-close" class="ghost-btn">关闭</button>
+      </div>
+
+      <p class="modal-note">
+        🔒 下面填的凭证<b>只保存在你本机浏览器</b>（localStorage），每次请求随 HTTP 头发给本站服务，
+        <b>服务端不存储</b>。所以每个人都可以用<b>自己的</b>方舟与 ima 知识库，学自己的资料。
+        不填也能玩 —— 会自动进入 <b>DEMO 模式</b>。
+      </p>
+
+      <h3>① 火山方舟（大模型 · 老师）<span class="req">必填才能用真模型</span></h3>
+      <label class="field"><span>API Key</span>
+        <input id="cfg-ark-key" type="password" autocomplete="off" placeholder="ark-xxxxxxxx-xxxx-…" /></label>
+      <label class="field"><span>接入点 / 模型 ID</span>
+        <input id="cfg-ark-model" autocomplete="off" placeholder="ep-20250101-xxxxx" /></label>
+      <label class="field"><span>Base URL（可留空）</span>
+        <input id="cfg-ark-base" autocomplete="off" placeholder="https://ark.cn-beijing.volces.com/api/v3" /></label>
+      <div class="test-row">
+        <button id="cfg-test-ark" class="ghost-btn">测试方舟连接</button>
+        <span id="cfg-ark-result" class="test-result"></span>
+      </div>
+
+      <h3>② ima 知识库（你自己的教材 · 可选）</h3>
+      <label class="field"><span>API Key</span>
+        <input id="cfg-ima-key" type="password" autocomplete="off" /></label>
+      <label class="field"><span>Client ID</span>
+        <input id="cfg-ima-client-id" autocomplete="off" /></label>
+      <label class="field"><span>学科 → 知识库ID（JSON）</span>
+        <textarea id="cfg-ima-kb-map" rows="3" spellcheck="false"
+          placeholder='{"博弈论":"kb-id-1","社会科学":"kb-id-2"}'></textarea></label>
+      <div class="test-row">
+        <button id="cfg-test-ima" class="ghost-btn">测试 ima 连接</button>
+        <span id="cfg-ima-result" class="test-result"></span>
+      </div>
+
+      <div class="modal-foot">
+        <button id="cfg-save" class="primary-btn">保存到本机浏览器</button>
+        <button id="cfg-clear" class="ghost-btn">清空凭证</button>
+      </div>
     </div>
   </div>
 
