@@ -1,6 +1,8 @@
 # 学术galgame Agent 🐋
 
 > **学习优先的 AI 教学 galgame Agent**：LLM 扮演「鲸鱼娘」老师，用**苏格拉底式提问**带你自己发现答案，而不是直接讲解；学习成果量化为游戏数值（学科熟练度 / 好感度 / HP / 任务链），逐科讨伐 BOSS，最终挑战不可战胜的全知魔神。
+>
+> 鲸鱼娘老师的学术galgame —— 苏格拉底式情境教学（领主求助 / 魔将讨伐 / 学科魔王），配合 ima 知识库检索与答题结算（熟练度 / 好感 / HP），深读学科到「研究生」挑战全知魔神。
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
 [![Node](https://img.shields.io/badge/node-%3E%3D18-brightgreen.svg)](https://nodejs.org)
