@@ -19,7 +19,7 @@ import { GameSession } from '../engine/session.js'
 import { MemoryStorage } from '../engine/storage.js'
 import { GameMaster } from '../agent/gm.js'
 import { describeArk, arkChat } from '../agent/ark.js'
-import { retrieve, testIma, imaEnabled } from '../agent/retriever.js'
+import { retrieve, testIma, imaEnabled, listKnowledgeBases } from '../agent/retriever.js'
 
 loadEnv()
 
@@ -28,6 +28,8 @@ const PORT = Number(process.env.PORT || 8787)
 const HOST = process.env.HOST || '127.0.0.1'
 const MAX_SESSIONS = Number(process.env.MAX_SESSIONS || 500)
 const SESSION_TTL_MS = 6 * 60 * 60 * 1000 // 6 小时未活动即回收
+const MAX_FILE_CHARS = 400_000             // 单个教材文件上限（字符）
+const MAX_CORPUS_CHARS = 2_000_000         // 每位访客上传教材总量上限（字符）
 
 const MIME = {
   '.html': 'text/html; charset=utf-8',
@@ -80,7 +82,7 @@ function sessionFor(req, res) {
   let entry = sid ? sessions.get(sid) : undefined
   if (!entry) {
     const session = new GameSession(new MemoryStorage())
-    entry = { session, gm: new GameMaster(session), last: Date.now() }
+    entry = { session, gm: new GameMaster(session), corpus: [], last: Date.now() }
     const id = randomUUID()
     sessions.set(id, entry)
     res.setHeader('set-cookie', `gal_sid=${id}; Path=/; HttpOnly; SameSite=Lax; Max-Age=86400`)
@@ -177,8 +179,58 @@ const server = createServer(async (req, res) => {
     if (pathname === '/api/chat' && req.method === 'POST') {
       const body = await readBody(req)
       const entry = sessionFor(req, res)
-      const result = await entry.gm.say(body.message || '', credsFrom(req))
+      const result = await entry.gm.say(body.message || '', credsFrom(req), entry.corpus)
       return sendJson(res, 200, result)
+    }
+
+    // ── 用户自带教材（只放本会话内存，不落盘）──
+    if (pathname === '/api/corpus' && req.method === 'GET') {
+      const entry = sessionFor(req, res)
+      return sendJson(res, 200, {
+        ok: true,
+        files: entry.corpus.map((f) => ({ name: f.name, chars: f.text.length })),
+        totalChars: entry.corpus.reduce((n, f) => n + f.text.length, 0),
+      })
+    }
+
+    if (pathname === '/api/corpus' && req.method === 'POST') {
+      const body = await readBody(req, 6_000_000)
+      const entry = sessionFor(req, res)
+      const incoming = Array.isArray(body.files) ? body.files : []
+      const kept = []
+      let total = 0
+      for (const f of incoming.slice(0, 30)) {
+        const name = String(f.name || '未命名').slice(0, 120)
+        const text = String(f.text || '')
+        if (!text.trim()) continue
+        if (text.length > MAX_FILE_CHARS) {
+          kept.push({ name, text: text.slice(0, MAX_FILE_CHARS) })
+          total += MAX_FILE_CHARS
+        } else {
+          kept.push({ name, text })
+          total += text.length
+        }
+        if (total >= MAX_CORPUS_CHARS) break
+      }
+      entry.corpus = kept
+      return sendJson(res, 200, {
+        ok: true,
+        files: entry.corpus.map((f) => ({ name: f.name, chars: f.text.length })),
+        totalChars: entry.corpus.reduce((n, f) => n + f.text.length, 0),
+        truncated: total >= MAX_CORPUS_CHARS,
+      })
+    }
+
+    if (pathname === '/api/corpus' && req.method === 'DELETE') {
+      const entry = sessionFor(req, res)
+      entry.corpus = []
+      return sendJson(res, 200, { ok: true, files: [], totalChars: 0 })
+    }
+
+    // ── ima：列出可用知识库（把「名称」解析成「ID」）──
+    if (pathname === '/api/ima/kbs' && req.method === 'POST') {
+      const r = await listKnowledgeBases(credsFrom(req))
+      return sendJson(res, 200, r)
     }
 
     if (pathname === '/api/reset' && req.method === 'POST') {

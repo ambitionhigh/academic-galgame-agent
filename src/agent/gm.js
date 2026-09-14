@@ -171,13 +171,14 @@ ${renderState(this.session.status())}
    * @param {string} name 工具名
    * @param {object} args 工具参数
    * @param {object} [creds] 本次请求携带的凭证（BYOK）
+   * @param {Array<{name:string,text:string}>} [uploads] 本会话上传的教材
    */
-  async execTool(name, args = {}, creds = {}) {
+  async execTool(name, args = {}, creds = {}, uploads = []) {
     switch (name) {
       case 'ag_status':
         return this.session.status()
       case 'ag_retrieve':
-        return await retrieve(args.query, args.subject, creds)
+        return await retrieve(args.query, args.subject, creds, uploads)
       case 'ag_apply':
         return this.session.teaching(args)
       case 'ag_add_subject':
@@ -197,9 +198,10 @@ ${renderState(this.session.status())}
    * 处理一条玩家消息。
    * @param {string} message
    * @param {object} [creds] 本次请求携带的凭证（BYOK）：arkApiKey/arkModel/arkBaseUrl/imaApiKey/imaClientId/imaKbMap
+   * @param {Array<{name:string,text:string}>} [uploads] 本会话上传的教材
    * @returns {Promise<{reply:string, events:Array, state:object, demo:boolean}>}
    */
-  async say(message, creds = {}) {
+  async say(message, creds = {}, uploads = []) {
     const text = String(message || '').trim()
     const events = []
 
@@ -246,7 +248,7 @@ ${renderState(this.session.status())}
         try { args = fn.arguments ? JSON.parse(fn.arguments) : {} } catch { args = {} }
         let result
         try {
-          result = await this.execTool(fn.name, args, creds)
+          result = await this.execTool(fn.name, args, creds, uploads)
         } catch (e) {
           result = { ok: false, error: String((e && e.message) || e) }
         }

@@ -119,9 +119,22 @@ npm run smoke      # 引擎 + 检索 + 会话的 12 项离线自测，不联网�
 | 区块 | 填什么 | 作用 |
 |---|---|---|
 | **① 火山方舟** | 你的 API Key + 接入点 ID | 让「鲸鱼娘老师」由**你自己的**大模型驱动 |
-| **② ima 知识库** | 你的 API Key + Client ID + 学科→知识库ID 映射 | 让老师从**你自己的**知识库出题 |
+| **② ima 知识库** | 你的 API Key + Client ID，再点**「拉取知识库列表」** | 列出你的知识库，**按学科用名称下拉选择**，ID 自动填 |
+| **③ 我的教材** | 直接选 `.md` / `.txt` 文件 | **连 ima 都不用** —— 老师直接读你的资料出题 |
 
 填完点 **「测试连接」** 验证，再点 **「保存到本机浏览器」**。
+
+### 教材来源优先级
+
+老师找依据时按这个顺序回落，前一个没命中才用下一个：
+
+```
+① 你上传的教材（本会话内存） → ② 你的 ima 知识库 → ③ 项目内置 corpus/ 示例
+```
+
+所以在「③ 我的教材」里传了文件，就会**优先**用你自己的资料 —— 这是最省事的路径：不用 ima、不用配置知识库，选几个 `.md` 进去就能学。
+
+> 上传的教材只存在**本次会话的服务端内存**里，不写磁盘；关掉会话或清空即消失。可用「清空我的教材」立即移除。
 
 ### 凭证去哪了？
 
@@ -350,10 +363,23 @@ academic-galgame-agent/
 
 | 方法 | 路径 | 说明 |
 |---|---|---|
-| `GET` | `/api/health` | 运行模式、是否已配置方舟、当前模型 |
+| `GET` | `/api/health` | 运行模式、是否已配置方舟 / ima、当前模型 |
 | `GET` | `/api/state` | 完整游戏状态（UI 与调试用） |
 | `POST` | `/api/chat` | 对话一次，body：`{ "message": "..." }`；返回 `{ reply, events, state, demo }` |
 | `POST` | `/api/reset` | 重置进度 |
+| `POST` | `/api/test` | 连通性测试，body：`{ "kind": "ark" \| "ima" }` |
+| `POST` | `/api/ima/kbs` | 列出该凭证可用的 ima 知识库（名称 → ID） |
+| `GET` | `/api/corpus` | 查看本会话已上传的教材列表 |
+| `POST` | `/api/corpus` | 上传教材，body：`{ "files": [{ "name": "...", "text": "..." }] }` |
+| `DELETE` | `/api/corpus` | 清空本会话教材 |
+
+**鉴权（BYOK）**：除 `health` 外，其余接口通过 HTTP 头接收用户自带凭证（服务端不存储）：
+
+| 头 | 含义 |
+|---|---|
+| `x-ark-key` / `x-ark-model` / `x-ark-base` | 火山方舟凭证 |
+| `x-ima-key` / `x-ima-client-id` | ima 凭证 |
+| `x-ima-kb-map` | 学科→知识库ID 映射（JSON，percent-encoded） |
 
 示例：
 
@@ -361,6 +387,7 @@ academic-galgame-agent/
 curl -s http://127.0.0.1:8787/api/state
 curl -s -X POST http://127.0.0.1:8787/api/chat \
   -H 'content-type: application/json' \
+  -H 'x-ark-key: ark-xxxx' -H 'x-ark-model: ep-xxxx' \
   -d '{"message":"开始教学，我想学纳什均衡"}'
 ```
 

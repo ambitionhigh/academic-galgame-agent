@@ -123,12 +123,29 @@
         <input id="cfg-ima-key" type="password" autocomplete="off" /></label>
       <label class="field"><span>Client ID</span>
         <input id="cfg-ima-client-id" autocomplete="off" /></label>
-      <label class="field"><span>学科 → 知识库ID（JSON）</span>
-        <textarea id="cfg-ima-kb-map" rows="3" spellcheck="false"
-          placeholder='{"博弈论":"kb-id-1","社会科学":"kb-id-2"}'></textarea></label>
       <div class="test-row">
         <button id="cfg-test-ima" class="ghost-btn">测试 ima 连接</button>
+        <button id="cfg-list-kb" class="ghost-btn">拉取知识库列表</button>
         <span id="cfg-ima-result" class="test-result"></span>
+      </div>
+
+      <div id="cfg-kb-rows" class="kb-rows">
+        <p class="kb-hint">点「拉取知识库列表」后，这里会按学科列出下拉框 —— 直接用<b>名称</b>选即可，ID 自动填。</p>
+      </div>
+
+      <details class="adv">
+        <summary>高级：直接编辑映射 JSON</summary>
+        <textarea id="cfg-ima-kb-map" rows="3" spellcheck="false"
+          placeholder='{"博弈论":"kb-id-1","社会科学":"kb-id-2"}'></textarea>
+      </details>
+
+      <h3>③ 我的教材（自己的 .md / .txt · 可选）<span class="req">连 ima 都不用</span></h3>
+      <label class="field file-field"><span>选择文件（可多选）</span>
+        <input id="cfg-files" type="file" multiple accept=".md,.txt,.markdown,text/plain,text/markdown" /></label>
+      <ul id="cfg-file-list" class="file-list"></ul>
+      <div class="test-row">
+        <button id="cfg-clear-files" class="ghost-btn">清空我的教材</button>
+        <span id="cfg-file-result" class="test-result"></span>
       </div>
 
       <div class="modal-foot">
