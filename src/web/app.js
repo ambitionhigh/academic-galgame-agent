@@ -3,6 +3,11 @@
 //
 // 【BYOK 自带密钥】用户填写的方舟 / ima 凭证只保存在本机 localStorage，
 // 每次请求随 HTTP 头发送；服务端不存储。→ 每个人用自己的 Key 学自己的资料。
+//
+// 【教材】上传的 .md/.txt/.docx/.pdf 在浏览器端提取为纯文本，存进会话内存；
+// 同时镜像到 IndexedDB，刷新或重开浏览器会自动恢复，不用重新上传。
+import { extractText, ACCEPT } from './extract.js'
+import { saveStoredCorpus, loadStoredCorpus, clearStoredCorpus } from './store.js'
 
 const FRAME = 256
 const CRED_KEY = 'academic-galgame-creds'
@@ -335,7 +340,21 @@ async function loadKbList() {
   } catch (e) { showResult(el.cfgImaResult, 'err', `✗ ${e.message}`) }
 }
 
-/* ── ③ 我的教材（上传 → 只存本会话内存）── */
+/* ── ③ 我的教材（提取 → 会话内存 + 浏览器持久化）── */
+let localCorpus = []   // 本地镜像 [{name, subject, text}]，用于持久化恢复
+
+/** 用服务端返回的文件列表校对本地镜像（服务端为准，本地保留正文） */
+function syncLocal(serverFiles) {
+  const byName = new Map(localCorpus.map((f) => [f.name, f]))
+  const next = []
+  for (const sf of serverFiles || []) {
+    const local = byName.get(sf.name)
+    if (local) { local.subject = sf.subject || ''; next.push(local) }
+  }
+  localCorpus = next
+  saveStoredCorpus(localCorpus).catch(() => {})
+}
+
 function renderFileList(files, totalChars) {
   el.cfgFileList.innerHTML = ''
   for (const f of files) {
@@ -351,6 +370,8 @@ function renderFileList(files, totalChars) {
   }
   el.cfgFileList.querySelectorAll('select').forEach((sel) => {
     sel.addEventListener('change', async () => {
+      const target = localCorpus.find((f) => f.name === sel.closest('li').querySelector('.f-name b').textContent)
+      if (target) { target.subject = sel.value; saveStoredCorpus(localCorpus).catch(() => {}) }
       try {
         const r = await api('/api/corpus', {
           method: 'PATCH',
@@ -366,6 +387,7 @@ function renderFileList(files, totalChars) {
     btn.addEventListener('click', async () => {
       try {
         const r = await api(`/api/corpus?id=${encodeURIComponent(btn.dataset.id)}`, { method: 'DELETE' })
+        syncLocal(r.files || [])
         renderFileList(r.files || [], r.totalChars || 0)
         showResult(el.cfgFileResult, 'ok', '已删除该文件')
       } catch (e) { showResult(el.cfgFileResult, 'err', `✗ ${e.message}`) }
@@ -374,7 +396,7 @@ function renderFileList(files, totalChars) {
   if (files.length) {
     const li = document.createElement('li')
     li.className = 'total'
-    li.innerHTML = `<span>合计 ${files.length} 个文件</span><span class="sz">${Number(totalChars || 0).toLocaleString()} 字</span>`
+    li.innerHTML = `<span>合计 ${files.length} 个文件 · 已存本机浏览器（刷新不丢）</span><span class="sz">${Number(totalChars || 0).toLocaleString()} 字</span>`
     el.cfgFileList.appendChild(li)
   }
 }
@@ -386,24 +408,62 @@ async function loadCorpus() {
   } catch { /* 忽略 */ }
 }
 
+/** 把 [{name, text, subject}] 上传到服务端，并同步本地镜像 */
+async function postCorpus(payload) {
+  const r = await api('/api/corpus', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ files: payload }),
+  })
+  // 合并进本地镜像（同名覆盖），只保留服务端仍存在的
+  const byName = new Map(localCorpus.map((f) => [f.name, f]))
+  for (const p of payload) byName.set(p.name, { name: p.name, subject: p.subject || '', text: p.text })
+  localCorpus = (r.files || []).map((sf) => byName.get(sf.name)).filter(Boolean)
+  localCorpus.forEach((f, i) => { f.subject = (r.files[i] || {}).subject || '' })
+  saveStoredCorpus(localCorpus).catch(() => {})
+  return r
+}
+
+/** 从 File 列表提取文本并上传 */
 async function uploadFiles(fileList) {
   const files = Array.from(fileList || [])
   if (!files.length) return
-  showResult(el.cfgFileResult, 'pending', `正在读取 ${files.length} 个文件…`)
+  showResult(el.cfgFileResult, 'pending', `正在解析 ${files.length} 个文件…`)
   const payload = []
+  const errors = []
   for (const f of files) {
-    try { payload.push({ name: f.name, text: await f.text() }) } catch { /* 跳过读不了的 */ }
+    try {
+      const { text } = await extractText(f)
+      payload.push({ name: f.name, text, subject: '' })
+    } catch (e) {
+      errors.push(`${f.name}：${e.message}`)
+    }
+  }
+  if (!payload.length) {
+    showResult(el.cfgFileResult, 'err', `✗ ${errors.join('；')}`)
+    return
   }
   try {
-    const r = await api('/api/corpus', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ files: payload }),
-    })
+    const r = await postCorpus(payload)
     renderFileList(r.files || [], r.totalChars || 0)
-    showResult(el.cfgFileResult, 'ok', `✓ 已载入 ${(r.files || []).length} 个文件${r.truncated ? '（超出上限已截断）' : ''}`)
+    const okMsg = `✓ 已载入 ${(r.files || []).length} 个文件${r.truncated ? '（超出上限已截断）' : ''}`
+    showResult(el.cfgFileResult, errors.length ? 'err' : 'ok', errors.length ? `${okMsg}；失败：${errors.join('；')}` : okMsg)
     pushMessage('系统', `已载入你的教材（${(r.files || []).length} 个文件），老师会优先从这些资料出题。`, 'sys')
   } catch (e) { showResult(el.cfgFileResult, 'err', `✗ ${e.message}`) }
+}
+
+/** 启动时：若服务端本会话没有教材，而浏览器里存着，则自动恢复 */
+async function restoreCorpus() {
+  try {
+    const stored = await loadStoredCorpus()
+    if (!stored.length) return
+    const server = await api('/api/corpus')
+    if ((server.files || []).length > 0) { localCorpus = stored; syncLocal(server.files); return }
+    localCorpus = stored
+    const r = await postCorpus(stored.map((f) => ({ name: f.name, text: f.text, subject: f.subject || '' })))
+    renderFileList(r.files || [], r.totalChars || 0)
+    pushMessage('系统', `已从本机浏览器恢复 ${(r.files || []).length} 个教材文件。`, 'sys')
+  } catch { /* 忽略 */ }
 }
 
 /* ── 拖拽上传：把 .md/.txt 拖进虚线框即可 ── */
@@ -468,21 +528,30 @@ el.cfgFiles.addEventListener('change', (e) => uploadFiles(e.target.files))
 el.cfgClearFiles.addEventListener('click', async () => {
   try {
     await api('/api/corpus', { method: 'DELETE' })
+    localCorpus = []
+    await clearStoredCorpus().catch(() => {})
     renderFileList([], 0)
     el.cfgFiles.value = ''
-    showResult(el.cfgFileResult, 'ok', '已清空我的教材')
+    showResult(el.cfgFileResult, 'ok', '已清空我的教材（含浏览器本地副本）')
   } catch (e) { showResult(el.cfgFileResult, 'err', `✗ ${e.message}`) }
 })
 
 /* ── 启动 ── */
 async function boot() {
+  // 文件选择器接受的后缀与 extract.js 保持同一真源
+  if (el.cfgFiles) el.cfgFiles.setAttribute('accept', ACCEPT)
+
+  // 深链优先：先开面板，不被后面的网络/存储操作阻塞
+  const wantSettings = location.hash === '#settings'
+  if (wantSettings) openSettings()
+
   await refreshHealth()
   try { renderState(await api('/api/state')) } catch { /* 忽略 */ }
 
-  // 支持 http://host/#settings 直接打开设置面板
-  if (location.hash === '#settings') {
-    openSettings()
-  } else {
+  // 教材：从浏览器本地副本恢复（若本会话服务端还没有）；失败或超时都不影响使用
+  await restoreCorpus()
+
+  if (!wantSettings) {
     const c = loadCreds()
     if (!c.arkKey) {
       pushMessage('系统', '尚未配置大模型：点右上角「⚙ 设置」填入你自己的火山方舟 Key，即可用真模型教学；不填也能在 DEMO 模式试玩。', 'sys')

@@ -141,9 +141,11 @@
 
       <h3>③ 我的教材（自己的 .md / .txt · 可选）<span class="req">连 ima 都不用</span></h3>
       <div id="cfg-drop" class="drop-zone">
-        <input id="cfg-files" type="file" multiple accept=".md,.txt,.markdown,text/plain,text/markdown" />
-        <p>把 <b>.md / .txt</b> 拖到这里，或点击选择文件<br />
-          <span class="dim">可多选、可分多次追加；同名文件自动覆盖</span></p>
+        <input id="cfg-files" type="file" multiple
+          accept=".md,.markdown,.txt,.docx,.pdf,text/plain,text/markdown" />
+        <p>把 <b>.md / .txt / .docx</b> 拖到这里，或点击选择<br />
+          <span class="dim">也接受 <b>.pdf</b>（实验性，扫描件/特殊字体可能失败）· 可多选、可分多次追加<br />
+            同名自动覆盖 · 内容存在本机浏览器，刷新不丢</span></p>
       </div>
       <ul id="cfg-file-list" class="file-list"></ul>
       <div class="test-row">
