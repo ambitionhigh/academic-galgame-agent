@@ -65,9 +65,27 @@ node $SKILL retrieve --query "纳什均衡" --subject 博弈论        # ★ 检
 ```
 
 - **出题前先 `retrieve`**，用返回的 `items[].content` 作为讲解与出题的**唯一依据**，**不得编造**。
-- `retrieve` 返回 `ok:false` 时（教材库为空 / 该学科无可用教材 / 没命中），
-  **如实告诉用户缺什么**，并建议导入对应教材，而不是硬讲。
+- `retrieve` 是**两级回落**：先查**本地教材库**，没命中再查**ima 知识库**。
+- `retrieve` 返回 `ok:false` 时（两边都没有依据 / 该学科无可用教材 / 没命中），
+  **如实告诉用户缺什么**，并建议导入教材或配置知识库，而不是硬讲。
 - 学科语义：教材标了学科 → 只在该学科可用；留空 → **通用**，所有学科可用。
+
+### ima 知识库（可选 —— 用用户自己的知识库当教材）
+
+```bash
+node $SKILL ima status                                        # 是否已配置（Key 打码显示）
+node $SKILL ima config --key <API Key> --client-id <Client ID> # 保存凭证（只存本机，权限 0600）
+node $SKILL ima kbs                                           # 列出用户的知识库（名称 → ID）
+node $SKILL ima add-subject --kb "博弈论大学习"                 # ★ 一键把知识库变成学科并绑定
+node $SKILL ima bind --subject 博弈论 --kb "博弈论大学习"        # 给已有学科绑定知识库
+node $SKILL ima unbind --subject 博弈论                        # 解除绑定
+node $SKILL ima clear                                         # 清除凭证与全部绑定
+```
+
+- 用户说「**用我的 X 知识库学 Y**」时：先 `ima kbs` 确认知识库名，再 `ima add-subject --kb X`。
+- 用户要给某学科换来源时：`ima bind`。
+- 绑定了知识库的学科，`retrieve` 会去该知识库取真实内容（带原文片段）。
+- **凭证只存本机** `~/.workbuddy/academic-galgame/credentials.json`，**绝不写进对话或提交**。
 
 ## 工作流
 
@@ -80,7 +98,8 @@ node $SKILL status
 - 看**各科熟练度**决定今天教什么（最低的先补，或用户指定的）；
 - 看**任务链进度**（`quest.lord/general/king`）判断是否有可挑战的关卡；
 - 看 `subjects` 确认有哪些学科可教；
-- 看 `materials` 确认**教材库有没有可用的真实依据**（`count` 为 0 就要提醒用户导入）。
+- 看 `materials` 确认**教材库有没有可用的真实依据**（`count` 为 0 就要提醒用户导入）；
+- 看 `ima` 确认**知识库是否已配置、哪些学科绑定了知识库**（`configured` / `boundSubjects`）。
 
 ### 第 2 步：出题前先取依据（**别凭记忆编**）
 
@@ -89,8 +108,12 @@ node $SKILL retrieve --query "纳什均衡" --subject 博弈论
 ```
 
 - **有命中** → 用 `items[].content` 里的原话/要点来讲解与出题，可以自然引用：「你的资料里写道……」
-- **`ok:false`** → 如实告诉用户缺什么（教材库为空 / 该学科没有可用教材 / 这个词没命中），
-  并建议 `materials add --path <文件> --subject <学科>`；**不要硬讲、不要编造**。
+  （`source` 字段会告诉你是 `materials` 还是 `ima`）
+- **`ok:false`** → 如实告诉用户缺什么，并按情况给建议：
+  - 两边都没配 → `materials add --path <文件>` 导入教材，或 `ima config` 配置知识库
+  - 该学科没有可用教材 → 给教材打上该学科标签，或 `ima bind --subject <学科> --kb <知识库>`
+  - 只是这个词没命中 → 换个关键词再试
+  **不要硬讲、不要编造。**
 
 ### 第 3 步：情境抛问（不要讲解）
 
@@ -165,8 +188,8 @@ node $SKILL battle-apply --correctness 0.8 --note "给出权责平等的制度�
 每次回复前自查：
 
 - [ ] 我**没有**直接给出答案，而是用问题引导？
-- [ ] 出题前**调用过 `retrieve`**？内容来自教材库的真实片段，而不是我凭记忆编的？
-- [ ] 若 `retrieve` 没命中（教材库空 / 该科无教材 / 没搜到），我是否**如实说明**并建议导入，而不是硬讲？
+- [ ] 出题前**调用过 `retrieve`**？内容来自**教材库或 ima 知识库**的真实片段，而不是我凭记忆编的？
+- [ ] 若 `retrieve` 没命中（两边都没配 / 该科无依据 / 没搜到），我是否**如实说明**并给出具体建议，而不是硬讲？
 - [ ] 本轮若做了判定，**已经调用 `apply`**（或战斗用 `battle-apply`）？
 - [ ] `subject` 用的是状态里**真实存在**的学科名？
 - [ ] 回复控制在 200~400 字，且是 1~2 个追问？
@@ -179,3 +202,4 @@ node $SKILL battle-apply --correctness 0.8 --note "给出权责平等的制度�
 - **教材库位置**：`${GALGAME_MATERIALS:-~/.workbuddy/academic-galgame/materials}`
   （`index.json` 元数据 + `<id>.txt` 提取后的正文）
 - **存档位置**：`${GALGAME_SAVE:-~/.workbuddy/academic-galgame/save.json}`（含 `{ state, battle }`）
+- **ima 凭证位置**：`~/.workbuddy/academic-galgame/credentials.json`（只存本机，权限 0600；可用 `GALGAME_HOME` 改目录）

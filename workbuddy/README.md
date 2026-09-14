@@ -31,8 +31,9 @@ chmod +x install.sh && ./install.sh
 ├── academic-galgame/          # 主技能：鲸鱼娘老师 + 游戏状态 CLI + 教材库
 │   ├── SKILL.md
 │   ├── scripts/
-│   │   ├── galgame.js         # 状态 CLI（status / apply / battle / materials / retrieve）
+│   │   ├── galgame.js         # 状态 CLI（status / apply / battle / materials / ima / retrieve）
 │   │   ├── materials.js       # 教材库：导入 / 列表 / 学科标注 / 检索
+│   │   ├── ima.js             # ima 知识库：凭证 / 列库 / 绑定 / 检索
 │   │   ├── extract.js         # 文本提取（.md/.txt/.docx/.pdf，零依赖）
 │   │   └── engine/            # 内嵌游戏引擎（状态机 / 战斗 / 配置）
 │   └── references/
@@ -151,6 +152,48 @@ node $SKILL retrieve --query "纳什均衡" --subject 博弈论       # ★ 检�
 
 ---
 
+## 三·六、ima 知识库（用你自己的知识库当教材）
+
+如果你有腾讯 **ima** 知识库，可以直接接进来 —— 每个知识库能**一键变成一门学科**。
+
+```bash
+node $SKILL ima status                                        # 是否已配置（Key 打码显示）
+node $SKILL ima config --key <API Key> --client-id <Client ID> # 保存凭证
+node $SKILL ima kbs                                           # 列出你的知识库（名称 → ID）
+node $SKILL ima add-subject --kb "博弈论大学习"                 # ★ 一键变成学科并绑定
+node $SKILL ima bind --subject 博弈论 --kb "博弈论大学习"        # 给已有学科绑定知识库
+node $SKILL ima unbind --subject 博弈论                        # 解除绑定
+node $SKILL ima clear                                         # 清除凭证与全部绑定
+```
+
+典型对话：
+
+```
+用户：用我的「博弈论大学习」知识库教我
+你  ：ima kbs → ima add-subject --kb "博弈论大学习" → retrieve --query 纳什均衡 --subject 博弈论大学习
+      → 用检索到的真实内容出题
+```
+
+| 要点 | 说明 |
+|---|---|
+| **凭证存放** | `~/.workbuddy/academic-galgame/credentials.json`，**只存本机**，写入时权限 `0600`（Windows 忽略） |
+| **环境变量优先** | `IMA_API_KEY` / `IMA_CLIENT_ID` / `IMA_KB_MAP` 会覆盖文件里的值（适合 CI 或临时用法） |
+| **域名可改** | `GALGAME_HOME` 可改整个凭证/存档目录 |
+| **未配置时** | `retrieve` 自动跳过 ima，回落本地教材库；两边都没有会**如实说明**，不会硬编 |
+| **检索接口** | `get_addable_knowledge_base_list` → `search_knowledge` → `get_media_info` → 取正文（每段截 1200 字） |
+
+### 检索优先级（教材库 → ima）
+
+```bash
+node $SKILL retrieve --query "纳什均衡" --subject 博弈论大学习
+```
+
+1. 先查**本地教材库**（该学科 + 通用）—— 命中即返回，`source: "materials"`
+2. 没命中再查**ima 知识库**（该学科绑定的那个）
+3. 两边都没有 → `ok:false`，并分别给出 `materialsError` / `imaError` 与 `hint`
+
+---
+
 ## 四、自检（不依赖 WorkBuddy，直接用 CLI 验证）
 
 ```bash
@@ -213,11 +256,9 @@ Remove-Item "$HOME\.workbuddy\academic-galgame" -Recurse -Force
 | 界面 | galgame Web 界面（立绘 / 属性面板 / 战斗浮层） | 无，全部走对话 |
 | 触发方式 | 打开网页 | WorkBuddy 自动匹配或 `@技能名` |
 | 模型来源 | 用户自带火山方舟 Key | **WorkBuddy 自身模型** |
-| **教材来源** | 拖拽上传 `.md/.docx`（IndexedDB 持久化）+ 可选 **ima 知识库** | **`materials add --path`** 导入本地文件/目录（`.md/.txt/.docx/.pdf`） |
-| 学科来源 | 从 ima 知识库**一键添加为学科**，或手动 | 手动 `add-subject`（WorkBuddy 版未接 ima） |
-
-> ⚠️ **差异说明**：WorkBuddy 版**没有接 ima 知识库** —— 它用的是本地教材库这一条路径。
-> 若需要 ima 集成，可以走 WorkBuddy 的 MCP 能力另做一层适配（未实现）。
+| **教材来源** | 拖拽上传 `.md/.docx`（IndexedDB 持久化）+ **ima 知识库** | **`materials add`** 本地文件/目录 + **ima 知识库** |
+| 学科来源 | 从 ima 知识库**一键添加为学科**，或手动 | **`ima add-subject`** 一键从知识库建科，或手动 `add-subject` |
+| 检索回落 | 上传教材 → ima → 内置示例语料 | 本地教材库 → ima（**没有内置语料**，两边都没有就如实说明） |
 
 > ⚠️ `scripts/engine/` 是从主项目 `src/engine/` **同步的副本**。改动主项目引擎后请重新复制：
 > ```powershell

@@ -22,6 +22,7 @@ import { createState, migrateState, statusView, applyTeaching, addSubject, remov
 import { battleView, startBattle, applyBattle, checkUnlock } from './engine/battle.js'
 import { ENEMY_DEFS } from './engine/config.js'
 import { listMaterials, addMaterial, removeMaterial, setMaterialSubject, clearMaterials, retrieve, materialsDir } from './materials.js'
+import { loadCreds, saveCreds, credsStatus, listKbs, resolveKb, retrieveIma, CRED_FILE } from './ima.js'
 
 const SAVE = process.env.GALGAME_SAVE
   || join(homedir(), '.workbuddy', 'academic-galgame', 'save.json')
@@ -89,14 +90,24 @@ const HELP = `学术galgame CLI
   materials remove --id <id>|--name <名>          删除一份教材
   materials clear                                 清空教材库
 
+ima 知识库（可与教材库并用）：
+  ima status                                      查看凭证与绑定状态（Key 打码）
+  ima config --key <API Key> --client-id <Client ID>   保存凭证（只存本机，权限 0600）
+  ima kbs                                         列出你的知识库（名称 → ID）
+  ima add-subject --kb <知识库名或ID>              把某个知识库一键变成学科并绑定
+  ima bind --subject <学科> --kb <知识库名或ID>     给已有学科绑定知识库
+  ima unbind --subject <学科>                      解除绑定
+  ima clear                                        清除凭证与全部绑定
+
 检索：
-  retrieve --query <词> [--subject 学科]           在教材里检索真实片段
+  retrieve --query <词> [--subject 学科]           出题依据：先查教材库，再查 ima 知识库
 
 存档：\${GALGAME_SAVE:-~/.workbuddy/academic-galgame/save.json}
 教材：\${GALGAME_MATERIALS:-~/.workbuddy/academic-galgame/materials}
+凭证：\${GALGAME_HOME:-~/.workbuddy/academic-galgame}/credentials.json（只存本机）
 `
 
-function main() {
+async function main() {
   const argv = process.argv.slice(2)
   const cmd = argv[0] || 'status'
   const a = parseArgs(argv.slice(1))
@@ -105,11 +116,13 @@ function main() {
   if (cmd === 'help' || a.help) { process.stdout.write(HELP); return }
 
   if (cmd === 'status') {
-    // 一并带出教材库概况，老师一眼能看到有没有可用的真实依据
+    // 一并带出教材库与 ima 概况，老师一眼能看到有哪些可用依据
     const mats = listMaterials()
+    const ima = credsStatus()
     emit(view(state, battle, {
       cmd,
       materials: { dir: mats.dir, count: mats.count, totalChars: mats.totalChars, items: mats.items },
+      ima: { configured: ima.configured, boundSubjects: ima.boundSubjects, kbMap: ima.kbMap, credFile: CRED_FILE },
     }))
     return
   }
@@ -223,12 +236,81 @@ function main() {
     return
   }
 
-  /* ── 教材检索（出题的真实依据） ── */
-  if (cmd === 'retrieve') {
-    const q = (typeof a.query === 'string' && a.query) || a._.join(' ')
-    if (!q) { emit({ ok: false, error: 'retrieve 需要 --query <词>' }); process.exitCode = 1; return }
+  /* ── ima 知识库 ── */
+  if (cmd === 'ima') {
+    const sub = a._[0] || 'status'
     try {
-      emit({ cmd, query: q, subject: typeof a.subject === 'string' ? a.subject : null, ...retrieve(q, typeof a.subject === 'string' ? a.subject : undefined) })
+      if (sub === 'status') { emit({ cmd: `${cmd} ${sub}`, ...credsStatus() }); return }
+
+      if (sub === 'config') {
+        const patch = {}
+        if (typeof a.key === 'string') patch.imaApiKey = a.key
+        if (typeof a['client-id'] === 'string') patch.imaClientId = a['client-id']
+        if (Object.keys(patch).length === 0) {
+          emit({ ok: false, error: 'ima config 需要 --key <API Key> 和/或 --client-id <Client ID>' })
+          process.exitCode = 1
+          return
+        }
+        saveCreds(patch)
+        emit({ cmd: `${cmd} ${sub}`, ...credsStatus() })
+        return
+      }
+
+      if (sub === 'clear') {
+        saveCreds({ imaApiKey: '', imaClientId: '', kbMap: {} })
+        emit({ cmd: `${cmd} ${sub}`, ...credsStatus() })
+        return
+      }
+
+      if (sub === 'kbs') {
+        const r = await listKbs()
+        emit({ cmd: `${cmd} ${sub}`, ...r })
+        if (!r.ok) process.exitCode = 1
+        return
+      }
+
+      if (sub === 'add-subject') {
+        const kbName = (typeof a.kb === 'string' && a.kb) || a._[1]
+        if (!kbName) { emit({ ok: false, error: 'ima add-subject 需要 --kb <知识库名或ID>' }); process.exitCode = 1; return }
+        const kb = await resolveKb(kbName)
+        const r = addSubject(state, kb.name)
+        if (!r.ok && !/已存在/.test(r.error)) { emit({ ok: false, error: r.error }); process.exitCode = 1; return }
+        const cur = loadCreds()
+        cur.kbMap[kb.name] = kb.id
+        saveCreds({ kbMap: cur.kbMap })
+        const warn = saveAll(state, battle)
+        emit(view(state, battle, {
+          cmd: `${cmd} ${sub}`, warn,
+          subject: kb.name, kb: { name: kb.name, id: kb.id }, alreadyExisted: !r.ok,
+        }))
+        return
+      }
+
+      if (sub === 'bind') {
+        const subjectName = typeof a.subject === 'string' ? a.subject : ''
+        const kbName = typeof a.kb === 'string' ? a.kb : ''
+        if (!subjectName || !kbName) { emit({ ok: false, error: 'ima bind 需要 --subject <学科> --kb <知识库名或ID>' }); process.exitCode = 1; return }
+        const kb = await resolveKb(kbName)
+        const cur = loadCreds()
+        cur.kbMap[subjectName] = kb.id
+        saveCreds({ kbMap: cur.kbMap })
+        emit({ ok: true, cmd: `${cmd} ${sub}`, bound: { subject: subjectName, kb: kb.name, kbId: kb.id }, kbMap: cur.kbMap })
+        return
+      }
+
+      if (sub === 'unbind') {
+        const subjectName = (typeof a.subject === 'string' && a.subject) || a._[1] || ''
+        if (!subjectName) { emit({ ok: false, error: 'ima unbind 需要 --subject <学科>' }); process.exitCode = 1; return }
+        const cur = loadCreds()
+        const had = cur.kbMap[subjectName] || null
+        delete cur.kbMap[subjectName]
+        saveCreds({ kbMap: cur.kbMap })
+        emit({ ok: true, cmd: `${cmd} ${sub}`, unbound: subjectName, had, kbMap: cur.kbMap })
+        return
+      }
+
+      emit({ ok: false, error: `未知子命令：ima ${sub}（用 help 查看用法）` })
+      process.exitCode = 1
     } catch (e) {
       emit({ ok: false, error: String((e && e.message) || e) })
       process.exitCode = 1
@@ -236,11 +318,39 @@ function main() {
     return
   }
 
+  /* ── 检索：本地教材库 → ima 知识库（按此顺序回落，都没有就如实说明） ── */
+  if (cmd === 'retrieve') {
+    const q = (typeof a.query === 'string' && a.query) || a._.join(' ')
+    const subject = typeof a.subject === 'string' ? a.subject : undefined
+    if (!q) { emit({ ok: false, error: 'retrieve 需要 --query <词>' }); process.exitCode = 1; return }
+
+    // ① 本地教材库
+    let local = null
+    try { local = retrieve(q, subject) } catch (e) { local = { ok: false, source: 'materials', items: [], error: String((e && e.message) || e) } }
+    if (local && local.ok) { emit({ cmd, query: q, subject: subject || null, ...local }); return }
+
+    // ② ima 知识库
+    let imaRes = null
+    try { imaRes = await retrieveIma(q, subject) } catch (e) { imaRes = { ok: false, source: 'ima', items: [], error: String((e && e.message) || e) } }
+    if (imaRes && imaRes.ok) { emit({ cmd, query: q, subject: subject || null, ...imaRes }); return }
+
+    // ③ 都没有 → 如实说明缺什么
+    emit({
+      ok: false, cmd, query: q, subject: subject || null, items: [],
+      error: (local && local.error) || (imaRes && imaRes.error) || '没有可用依据',
+      materialsError: local && local.error,
+      imaError: imaRes && imaRes.error,
+      hint: '先 materials add 导入教材，或 ima config 配置知识库后用 ima add-subject / ima bind 绑定学科',
+    })
+    process.exitCode = 1
+    return
+  }
+
   emit({ ok: false, error: `未知命令：${cmd}（用 help 查看用法）` })
   process.exitCode = 1
 }
 
-try { main() } catch (e) {
+main().catch((e) => {
   emit({ ok: false, error: String((e && e.message) || e) })
   process.exitCode = 1
-}
+})
