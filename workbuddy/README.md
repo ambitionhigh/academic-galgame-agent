@@ -28,10 +28,10 @@ chmod +x install.sh && ./install.sh
 
 ```
 ~/.workbuddy/skills/
-├── academic-galgame/          # 主技能：鲸鱼娘老师 + 游戏状态 CLI + 教材库
+├── academic-galgame/          # 主技能：鲸鱼娘老师 + 游戏状态 CLI + 教材库 + ima
 │   ├── SKILL.md
 │   ├── scripts/
-│   │   ├── galgame.js         # 状态 CLI（status / apply / battle / materials / ima / retrieve）
+│   │   ├── galgame.js         # 状态 CLI（status/onboard/apply/battle/materials/ima/retrieve）
 │   │   ├── materials.js       # 教材库：导入 / 列表 / 学科标注 / 检索
 │   │   ├── ima.js             # ima 知识库：凭证 / 列库 / 绑定 / 检索
 │   │   ├── extract.js         # 文本提取（.md/.txt/.docx/.pdf，零依赖）
@@ -41,6 +41,9 @@ chmod +x install.sh && ./install.sh
 └── socratic-questioning/      # 提问框架技能（六类提问 / 五种策略）
     └── SKILL.md
 ```
+
+> 仓库里的 `workbuddy/` 目录还带 `install.ps1` / `install.sh`（安装）与
+> `sync-engine.ps1` / `sync-engine.sh`（把主项目引擎同步进技能包）。
 
 ### 方式 B：生态 CLI 安装（需要能访问 GitHub）
 
@@ -81,10 +84,16 @@ dir %USERPROFILE%\.workbuddy\skills  # Windows
 ### 它会怎么教
 
 1. 先 `status` 读进度，决定今天教什么；
-2. **抛一个具体情境**（例如「两片渔场，限量还是疯狂捕捞？」），**不直接讲定义**；
-3. 按六类提问逐层追问；你卡住时给 1~2 档提示，答错则降难度并把该点记入近期重点；
-4. **每次判定立刻写进游戏数值**（熟练度 / 好感度 / 心情）；
-5. 达标时提示可以挑战领主 / 魔将 / 学科魔王。
+2. **若你还没导入任何资料**（`setup.needed: true`），它会**主动告诉你**并请你二选一：
+   - **A. 导入本地教材** —— 手上有 `.md`/`.txt`/`.docx`/`.pdf` 笔记
+   - **B. 接入 ima 知识库** —— 资料在腾讯 ima 里
+   （这一步它不会跳过，因为**没有依据就不该开始教**）
+3. **抛一个具体情境**（例如「两片渔场，限量还是疯狂捕捞？」），**不直接讲定义**；
+4. 按六类提问逐层追问；你卡住时给 1~2 档提示，答错则降难度并把该点记入近期重点；
+5. **每次判定立刻写进游戏数值**（熟练度 / 好感度 / 心情）；
+6. 达标时提示可以挑战领主 / 魔将 / 学科魔王。
+
+> 想单独看这份引导：`node $SKILL onboard`
 
 ---
 
@@ -108,7 +117,8 @@ node $SKILL help
 
 | 命令 | 说明 |
 |---|---|
-| `status` | 等级 / HP / 好感度 / 各科熟练度 / 任务链 / 进行中的战斗 / **教材库概况** |
+| `status` | 等级 / HP / 好感度 / 各科熟练度 / 任务链 / 进行中的战斗 / **教材库 + ima + 首次引导** |
+| `onboard` | **首次使用引导**：没配资料时该怎么做（两条路 + 可直接执行的命令） |
 | `apply` | 教学结算：`--subject` 必填，`--mastery` `--favor` `--hp` `--mood` `--note` 可选 |
 | `add-subject` / `remove-subject` | 增删学科（至少保留一个） |
 | `battle-start` | 开战；`--enemy` = `lord` / `general` / `king` / `demon` |
@@ -260,8 +270,17 @@ Remove-Item "$HOME\.workbuddy\academic-galgame" -Recurse -Force
 | 学科来源 | 从 ima 知识库**一键添加为学科**，或手动 | **`ima add-subject`** 一键从知识库建科，或手动 `add-subject` |
 | 检索回落 | 上传教材 → ima → 内置示例语料 | 本地教材库 → ima（**没有内置语料**，两边都没有就如实说明） |
 
-> ⚠️ `scripts/engine/` 是从主项目 `src/engine/` **同步的副本**。改动主项目引擎后请重新复制：
-> ```powershell
-> Copy-Item src\engine\config.js,src\engine\game.js,src\engine\battle.js `
->   workbuddy\skills\academic-galgame\scripts\engine\ -Force
-> ```
+> ⚠️ `scripts/engine/` 是从主项目 `src/engine/` **同步的副本**（技能必须自包含）。
+> 改动主项目引擎后，用同步脚本更新，不要手抄：
+
+```powershell
+.\sync-engine.ps1            # 同步（hash 比对 → 只复制变化的 → 复验一致）
+.\sync-engine.ps1 -Check     # 只校验，不一致则退出码 1（可挂进 CI）
+```
+```bash
+./sync-engine.sh             # macOS / Linux
+./sync-engine.sh --check
+```
+
+同步脚本只搬运技能真正需要的三个文件：`config.js` / `game.js` / `battle.js`
+（`storage.js` / `session.js` 是服务端专用，不进技能包）。

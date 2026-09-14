@@ -72,9 +72,65 @@ function view(state, battle, extra = {}) {
 }
 
 /* ── 命令 ── */
-const HELP = `学术galgame CLI
+/**
+ * 首次使用引导：当既没有教材、也没有可用的 ima 绑定时，
+ * 明确告诉用户「现在没有真实依据」并给出两条接入路径。
+ * @param {string} skillPath 本脚本路径（用于生成可直接执行的命令示例）
+ */
+function setupGuide(skillPath) {
+  const mats = listMaterials()
+  const ima = credsStatus()
+  const hasMaterials = mats.count > 0
+  const hasIma = ima.configured && ima.boundSubjects.length > 0
+  const needed = !hasMaterials && !hasIma
+  const cmd = `node "${skillPath}"`
 
-  status                                          查看状态
+  if (!needed) {
+    return {
+      needed: false,
+      state: {
+        materials: { count: mats.count, totalChars: mats.totalChars },
+        ima: { configured: ima.configured, boundSubjects: ima.boundSubjects },
+      },
+    }
+  }
+
+  return {
+    needed: true,
+    state: {
+      materials: { count: mats.count, dir: mats.dir },
+      ima: { configured: ima.configured, boundSubjects: ima.boundSubjects },
+    },
+    reason: '目前**既没有导入教材、也没有可用的 ima 知识库绑定** —— 出题时拿不到任何真实依据，只能空讲。',
+    tellUser: '先告诉用户这个情况，并请他选一条路（见 options），不要直接开始空讲。',
+    options: [
+      {
+        name: 'A. 导入本地教材（最快）',
+        when: '用户手上有 .md / .txt / .docx / .pdf 笔记或讲义',
+        steps: [
+          `${cmd} materials add --path "<文件或目录>" --subject "<学科名>"`,
+          `${cmd} add-subject --name "<学科名>"          # 该学科还不存在时`,
+          `${cmd} retrieve --query "<关键词>" --subject "<学科名>"   # 验证检索得到`,
+        ],
+      },
+      {
+        name: 'B. 接入 ima 知识库',
+        when: '用户资料在腾讯 ima 知识库里',
+        steps: [
+          `${cmd} ima config --key "<API Key>" --client-id "<Client ID>"`,
+          `${cmd} ima kbs                                # 列出用户的知识库`,
+          `${cmd} ima add-subject --kb "<知识库名>"       # 一键变成学科并绑定`,
+          `${cmd} retrieve --query "<关键词>" --subject "<学科名>"   # 验证检索得到`,
+        ],
+      },
+    ],
+    note: '两条路可以并用：retrieve 会先查本地教材库，没命中再查 ima 知识库。',
+  }
+}
+
+const HELP = `学术galgame CLI
+  status                                          查看状态（含教材库/ima/首次使用引导）
+  onboard                                         首次使用引导：没配资料时该怎么做
   apply --subject <名> [--mastery n] [--favor n] [--hp n] [--mood joy|disappointed|celebrate|think] [--note 文本]
   add-subject --name <名>                         新增学科
   remove-subject --name <名>                      删除学科
@@ -116,14 +172,21 @@ async function main() {
   if (cmd === 'help' || a.help) { process.stdout.write(HELP); return }
 
   if (cmd === 'status') {
-    // 一并带出教材库与 ima 概况，老师一眼能看到有哪些可用依据
+    // 一并带出教材库 / ima 概况 / 首次使用引导，老师一眼能看到有哪些可用依据
     const mats = listMaterials()
     const ima = credsStatus()
     emit(view(state, battle, {
       cmd,
       materials: { dir: mats.dir, count: mats.count, totalChars: mats.totalChars, items: mats.items },
       ima: { configured: ima.configured, boundSubjects: ima.boundSubjects, kbMap: ima.kbMap, credFile: CRED_FILE },
+      setup: setupGuide(process.argv[1]),
     }))
+    return
+  }
+
+  // 首次使用引导：单独命令，方便老师主动调用
+  if (cmd === 'onboard' || cmd === 'guide') {
+    emit({ ok: true, cmd, ...setupGuide(process.argv[1]) })
     return
   }
 
