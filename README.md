@@ -28,6 +28,7 @@
 - [🔑 自带密钥（BYOK）](#-自带密钥byok--每个人学自己的资料)
 - [🌐 在线体验 / 部署](#-在线体验--部署)
 - [在 Trae 中使用](#在-trae-中使用)
+- [🧩 在 WorkBuddy 中使用（技能版）](#-在-workbuddy-中使用技能版)
 - [玩法](#玩法)
 - [苏格拉底式教学](#苏格拉底式教学)
 - [项目结构](#项目结构)
@@ -248,6 +249,50 @@ npm start        # 打开 http://127.0.0.1:8787
 
 ---
 
+## 🧩 在 WorkBuddy 中使用（技能版）
+
+**WorkBuddy**（腾讯的 AI 办公智能体）用的是**技能（Skill）系统**：技能就是 `SKILL.md`，装在 `~/.workbuddy/skills/`。
+本仓库的 [`workbuddy/`](./workbuddy/) 目录是一个**可安装的技能包**，装完就能让 WorkBuddy 变成鲸鱼娘老师 ——
+**不需要 UI、不需要配 API Key**（用 WorkBuddy 自己的模型）。
+
+```powershell
+# Windows
+cd workbuddy; .\install.ps1
+```
+```bash
+# macOS / Linux
+cd workbuddy && chmod +x install.sh && ./install.sh
+```
+
+装好后在 WorkBuddy 里直接说：
+
+```
+开始教学，我想学纳什均衡
+考考我博弈论
+看看我的学习进度
+加一门「博弈论大学习」
+```
+
+### 两个技能
+
+| 技能 | 作用 |
+|---|---|
+| **`academic-galgame`** | 主技能：鲸鱼娘老师的教学流程 + 游戏状态 CLI（`status` / `apply` / `battle-*` / `add-subject`）+ 内嵌引擎 |
+| **`socratic-questioning`** | 提问框架：六类提问 + 五种策略 + 验证清单 |
+
+### 与 Trae 版的区别
+
+| | Trae 版（本仓库主体） | WorkBuddy 版（`workbuddy/`） |
+|---|---|---|
+| 形态 | 完整项目：Node 服务 + Web UI | 两个技能包（无 UI） |
+| 模型来源 | 用户自带火山方舟 Key | WorkBuddy 自身模型 |
+| 交互 | galgame Web 界面 | 全部走对话 |
+| 状态 | 服务端会话内存 | 技能内嵌 CLI 写 `~/.workbuddy/academic-galgame/save.json` |
+
+> 详细安装、命令表、自检步骤见 [`workbuddy/README.md`](./workbuddy/README.md)。
+
+---
+
 ## 玩法
 
 ### 双轨
@@ -313,6 +358,11 @@ academic-galgame-agent/
 │   │   └── git-commit-message.md #   提交信息规范
 │   └── skills/
 │       └── socratic-questioning/SKILL.md   # 苏格拉底式提问技能
+├── workbuddy/                    # WorkBuddy（腾讯）技能版：可安装的技能包
+│   ├── install.ps1 / install.sh  #   一键装到 ~/.workbuddy/skills/
+│   └── skills/
+│       ├── academic-galgame/     #   主技能 + 内嵌游戏状态 CLI + 引擎
+│       └── socratic-questioning/ #   提问框架技能
 ├── src/
 │   ├── engine/                   # 纯游戏逻辑（无网络、无 IO 之外依赖）
 │   │   ├── config.js             #   数值常量（唯一真源）
