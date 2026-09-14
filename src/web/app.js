@@ -28,7 +28,7 @@ const el = {
   cfgTestArk: $('cfg-test-ark'), cfgArkResult: $('cfg-ark-result'),
   cfgTestIma: $('cfg-test-ima'), cfgImaResult: $('cfg-ima-result'),
   cfgListKb: $('cfg-list-kb'), cfgKbRows: $('cfg-kb-rows'),
-  cfgFiles: $('cfg-files'), cfgFileList: $('cfg-file-list'),
+  cfgFiles: $('cfg-files'), cfgFileList: $('cfg-file-list'), cfgDrop: $('cfg-drop'),
   cfgClearFiles: $('cfg-clear-files'), cfgFileResult: $('cfg-file-result'),
   cfgSave: $('cfg-save'), cfgClear: $('cfg-clear'),
 }
@@ -339,12 +339,41 @@ async function loadKbList() {
 function renderFileList(files, totalChars) {
   el.cfgFileList.innerHTML = ''
   for (const f of files) {
+    const opts = ['<option value="">通用（所有学科）</option>']
+      .concat(cachedSubjects.map((s) => `<option value="${escapeHtml(s)}"${f.subject === s ? ' selected' : ''}>${escapeHtml(s)}</option>`))
+      .join('')
     const li = document.createElement('li')
-    li.innerHTML = `<span>${escapeHtml(f.name)}</span><span class="sz">${Number(f.chars || 0).toLocaleString()} 字</span>`
+    li.innerHTML = `
+      <span class="f-name"><b>${escapeHtml(f.name)}</b><span class="sz">${Number(f.chars || 0).toLocaleString()} 字</span></span>
+      <select data-id="${escapeHtml(f.id)}" title="限定给某个学科；「通用」表示所有学科都可用">${opts}</select>
+      <button class="f-del" data-id="${escapeHtml(f.id)}" title="删除这份教材">×</button>`
     el.cfgFileList.appendChild(li)
   }
+  el.cfgFileList.querySelectorAll('select').forEach((sel) => {
+    sel.addEventListener('change', async () => {
+      try {
+        const r = await api('/api/corpus', {
+          method: 'PATCH',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ id: sel.dataset.id, subject: sel.value }),
+        })
+        renderFileList(r.files || [], r.totalChars || 0)
+        showResult(el.cfgFileResult, 'ok', sel.value ? `已限定为「${sel.value}」` : '已设为通用')
+      } catch (e) { showResult(el.cfgFileResult, 'err', `✗ ${e.message}`) }
+    })
+  })
+  el.cfgFileList.querySelectorAll('.f-del').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      try {
+        const r = await api(`/api/corpus?id=${encodeURIComponent(btn.dataset.id)}`, { method: 'DELETE' })
+        renderFileList(r.files || [], r.totalChars || 0)
+        showResult(el.cfgFileResult, 'ok', '已删除该文件')
+      } catch (e) { showResult(el.cfgFileResult, 'err', `✗ ${e.message}`) }
+    })
+  })
   if (files.length) {
     const li = document.createElement('li')
+    li.className = 'total'
     li.innerHTML = `<span>合计 ${files.length} 个文件</span><span class="sz">${Number(totalChars || 0).toLocaleString()} 字</span>`
     el.cfgFileList.appendChild(li)
   }
@@ -376,6 +405,25 @@ async function uploadFiles(fileList) {
     pushMessage('系统', `已载入你的教材（${(r.files || []).length} 个文件），老师会优先从这些资料出题。`, 'sys')
   } catch (e) { showResult(el.cfgFileResult, 'err', `✗ ${e.message}`) }
 }
+
+/* ── 拖拽上传：把 .md/.txt 拖进虚线框即可 ── */
+function bindDropZone() {
+  const zone = el.cfgDrop
+  if (!zone) return
+  const stop = (e) => { e.preventDefault(); e.stopPropagation() }
+  for (const ev of ['dragenter', 'dragover']) {
+    zone.addEventListener(ev, (e) => { stop(e); zone.classList.add('over') })
+  }
+  for (const ev of ['dragleave', 'dragend', 'drop']) {
+    zone.addEventListener(ev, (e) => { stop(e); zone.classList.remove('over') })
+  }
+  zone.addEventListener('drop', (e) => {
+    const dt = e.dataTransfer
+    const files = dt && dt.files ? Array.from(dt.files) : []
+    if (files.length) uploadFiles(files)
+  })
+}
+bindDropZone()
 
 /* ── 事件绑定 ── */
 el.form.addEventListener('submit', (e) => {

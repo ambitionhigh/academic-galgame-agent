@@ -140,8 +140,11 @@
       </details>
 
       <h3>③ 我的教材（自己的 .md / .txt · 可选）<span class="req">连 ima 都不用</span></h3>
-      <label class="field file-field"><span>选择文件（可多选）</span>
-        <input id="cfg-files" type="file" multiple accept=".md,.txt,.markdown,text/plain,text/markdown" /></label>
+      <div id="cfg-drop" class="drop-zone">
+        <input id="cfg-files" type="file" multiple accept=".md,.txt,.markdown,text/plain,text/markdown" />
+        <p>把 <b>.md / .txt</b> 拖到这里，或点击选择文件<br />
+          <span class="dim">可多选、可分多次追加；同名文件自动覆盖</span></p>
+      </div>
       <ul id="cfg-file-list" class="file-list"></ul>
       <div class="test-row">
         <button id="cfg-clear-files" class="ghost-btn">清空我的教材</button>

@@ -121,6 +121,15 @@ function sendJson(res, code, data) {
   res.end(body)
 }
 
+/** 教材列表视图（不含正文，避免响应过大） */
+function corpusView(entry) {
+  return {
+    ok: true,
+    files: entry.corpus.map((f) => ({ id: f.id, name: f.name, subject: f.subject || '', chars: f.text.length })),
+    totalChars: entry.corpus.reduce((n, f) => n + f.text.length, 0),
+  }
+}
+
 async function readBody(req, limit = 1_000_000) {
   const chunks = []
   let size = 0
@@ -185,46 +194,60 @@ const server = createServer(async (req, res) => {
 
     // ── 用户自带教材（只放本会话内存，不落盘）──
     if (pathname === '/api/corpus' && req.method === 'GET') {
-      const entry = sessionFor(req, res)
-      return sendJson(res, 200, {
-        ok: true,
-        files: entry.corpus.map((f) => ({ name: f.name, chars: f.text.length })),
-        totalChars: entry.corpus.reduce((n, f) => n + f.text.length, 0),
-      })
+      return sendJson(res, 200, corpusView(sessionFor(req, res)))
     }
 
     if (pathname === '/api/corpus' && req.method === 'POST') {
-      const body = await readBody(req, 6_000_000)
+      const body = await readBody(req, 8_000_000)
       const entry = sessionFor(req, res)
       const incoming = Array.isArray(body.files) ? body.files : []
-      const kept = []
-      let total = 0
+      if (body.replace === true) entry.corpus = []
+
       for (const f of incoming.slice(0, 30)) {
-        const name = String(f.name || '未命名').slice(0, 120)
-        const text = String(f.text || '')
+        const name = String(f.name || '未命名').slice(0, 160)
+        let text = String(f.text || '')
         if (!text.trim()) continue
-        if (text.length > MAX_FILE_CHARS) {
-          kept.push({ name, text: text.slice(0, MAX_FILE_CHARS) })
-          total += MAX_FILE_CHARS
-        } else {
-          kept.push({ name, text })
-          total += text.length
-        }
+        if (text.length > MAX_FILE_CHARS) text = text.slice(0, MAX_FILE_CHARS)
+        const subject = f.subject ? String(f.subject).slice(0, 40) : ''
+
+        // 同名文件视为更新，避免重复上传堆积
+        const existing = entry.corpus.findIndex((x) => x.name === name)
+        const item = { id: randomUUID(), name, subject, text }
+        if (existing >= 0) { item.id = entry.corpus[existing].id; entry.corpus[existing] = item }
+        else entry.corpus.push(item)
+      }
+
+      // 总量封顶
+      let total = 0
+      const kept = []
+      for (const f of entry.corpus) {
         if (total >= MAX_CORPUS_CHARS) break
+        kept.push(f)
+        total += f.text.length
       }
       entry.corpus = kept
-      return sendJson(res, 200, {
-        ok: true,
-        files: entry.corpus.map((f) => ({ name: f.name, chars: f.text.length })),
-        totalChars: entry.corpus.reduce((n, f) => n + f.text.length, 0),
-        truncated: total >= MAX_CORPUS_CHARS,
-      })
+
+      const view = corpusView(entry)
+      return sendJson(res, 200, { ...view, truncated: total >= MAX_CORPUS_CHARS })
     }
 
+    // 给单个文件打「学科」标签（空字符串 = 通用教材）
+    if (pathname === '/api/corpus' && req.method === 'PATCH') {
+      const body = await readBody(req)
+      const entry = sessionFor(req, res)
+      const item = entry.corpus.find((f) => f.id === body.id)
+      if (!item) return sendJson(res, 404, { ok: false, error: '未找到该教材文件' })
+      item.subject = body.subject ? String(body.subject).slice(0, 40) : ''
+      return sendJson(res, 200, corpusView(entry))
+    }
+
+    // 删除单个（带 ?id=）或全部
     if (pathname === '/api/corpus' && req.method === 'DELETE') {
       const entry = sessionFor(req, res)
-      entry.corpus = []
-      return sendJson(res, 200, { ok: true, files: [], totalChars: 0 })
+      const id = url.searchParams.get('id')
+      if (id) entry.corpus = entry.corpus.filter((f) => f.id !== id)
+      else entry.corpus = []
+      return sendJson(res, 200, corpusView(entry))
     }
 
     // ── ima：列出可用知识库（把「名称」解析成「ID」）──

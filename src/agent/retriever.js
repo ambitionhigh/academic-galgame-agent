@@ -81,12 +81,28 @@ function searchDocs(docs, query, subject, source) {
   return { ok: items.length > 0, source, count: items.length, items }
 }
 
-/** ① 用户上传的教材（本会话内存） */
+/** ① 用户上传的教材（本会话内存）
+ *  按学科取用：「通用」（未指定学科）的教材对所有学科可用；
+ *  指定了学科的教材**只**对该学科可用。若该学科下无任何可用教材，则如实返回空。 */
 export function sessionCorpusRetrieve(query, subject, uploads = []) {
-  const docs = (uploads || [])
-    .filter((f) => f && typeof f.text === 'string' && f.text.trim())
-    .map((f) => ({ name: f.name || '上传教材', text: f.text }))
-  if (docs.length === 0) return { ok: false, source: 'upload', count: 0, items: [], error: '尚未上传教材' }
+  const all = (uploads || []).filter((f) => f && typeof f.text === 'string' && f.text.trim())
+  if (all.length === 0) {
+    return { ok: false, source: 'upload', count: 0, items: [], error: '尚未上传教材' }
+  }
+  let pool = all
+  if (subject) {
+    pool = all.filter((f) => !f.subject || f.subject === subject)
+    if (pool.length === 0) {
+      return {
+        ok: false, source: 'upload', count: 0, items: [],
+        error: `该学科（${subject}）没有可用教材：你上传的文件都指定了别的学科，且没有「通用」教材`,
+      }
+    }
+  }
+  const docs = pool.map((f) => ({
+    name: f.subject ? `${f.name}（${f.subject}）` : (f.name || '上传教材'),
+    text: f.text,
+  }))
   return searchDocs(docs, query, subject, 'upload')
 }
 

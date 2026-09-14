@@ -260,6 +260,37 @@ html, body {
 
 /* 教材上传 */
 .file-field input[type=file] { padding: 6px; font-size: 12px; color: var(--muted); }
-.file-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
-.file-list li { font-size: 12px; color: var(--muted); display: flex; justify-content: space-between; gap: 10px; }
-.file-list li .sz { color: var(--cyan-dim); flex: 0 0 auto; }
+
+.drop-zone {
+  position: relative; border: 1.5px dashed var(--line); border-radius: 10px;
+  padding: 14px 12px; text-align: center; cursor: pointer;
+  background: rgba(87, 224, 255, 0.03); transition: all 0.18s ease;
+}
+.drop-zone:hover { border-color: var(--cyan-dim); background: rgba(87, 224, 255, 0.07); }
+.drop-zone.over { border-color: var(--cyan); background: rgba(87, 224, 255, 0.14); }
+.drop-zone input[type=file] { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
+.drop-zone p { margin: 0; font-size: 12px; color: var(--muted); line-height: 1.7; pointer-events: none; }
+.drop-zone .dim { font-size: 11px; opacity: 0.75; }
+
+.file-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.file-list li {
+  display: grid; grid-template-columns: 1fr 116px 28px; align-items: center; gap: 8px;
+  font-size: 12px; color: var(--muted);
+  border: 1px solid var(--line); border-radius: 8px; padding: 6px 8px;
+  background: rgba(255, 255, 255, 0.02);
+}
+.file-list li.total {
+  grid-template-columns: 1fr auto; border-style: dashed; background: transparent; font-size: 11.5px;
+}
+.file-list .f-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.file-list .f-name b { color: var(--text); font-weight: 500; }
+.file-list .f-name .sz { color: var(--cyan-dim); margin-left: 6px; }
+.file-list select {
+  padding: 4px 6px; border-radius: 6px; font-size: 11.5px; outline: none;
+  border: 1px solid var(--line); background: rgba(0, 0, 0, 0.3); color: var(--text);
+}
+.file-list .f-del {
+  border: none; background: transparent; color: var(--muted); cursor: pointer;
+  font-size: 15px; line-height: 1; padding: 2px 4px; border-radius: 6px;
+}
+.file-list .f-del:hover { color: var(--red); background: rgba(255, 107, 129, 0.12); }
