@@ -56,7 +56,7 @@
 ### 2. 配置
 
 ```bash
-git clone https://github.com/your-name/academic-galgame-agent.git
+git clone https://github.com/Ambitionhigh/academic-galgame-agent.git
 cd academic-galgame-agent
 cp .env.example .env
 ```
