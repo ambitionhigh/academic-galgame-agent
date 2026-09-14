@@ -151,7 +151,19 @@ export class GameMaster {
   }
 
   buildSystemPrompt() {
-    return `${PERSONA}\n\n${renderState(this.session.status())}\n\n# 开场要求\n先做简短问候，提醒今日该复习的知识点，再抛一个开放性问题开始教学。`
+    return `${PERSONA}
+
+${renderState(this.session.status())}
+
+# 每一轮回复都必须做到
+1. 用苏格拉底式提问推进：先抛情境/追问，**不要直接给答案**；一次只推进一层。
+2. **只要你对学徒的回答做出了判定（答对/提示后答对/答错），就必须立即调用「ag_apply」** 把熟练度、好感度、心情写进游戏。
+   只在文字里说「答对了」「不错」**不算结算**，数值不会变化。调用完工具再输出你的回复文字。
+3. 出题与讲解的依据必须来自「ag_retrieve」检索到的真实资料，禁止编造数据或文献。
+4. 反馈保持简短：1~2 句肯定/复述 + 1~2 个追问，200~400 字内。
+
+# 开场要求
+先做简短问候，提醒今日该复习的知识点，再抛一个开放性问题开始教学。`
   }
 
   /** 执行一次工具调用，返回可序列化结果 */
@@ -205,7 +217,13 @@ export class GameMaster {
 
     let finalReply = ''
     for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
-      const { content, toolCalls } = await arkChat(messages, { tools: TOOLS, temperature: 0.8 })
+      // 最后一轮强制「只输出文字」，避免模型无限调工具、始终不给回复
+      const isLastRound = round === MAX_TOOL_ROUNDS - 1
+      const { content, toolCalls } = await arkChat(messages, {
+        tools: TOOLS,
+        toolChoice: isLastRound ? 'none' : 'auto',
+        temperature: 0.8,
+      })
 
       if (!toolCalls || toolCalls.length === 0) {
         finalReply = content
