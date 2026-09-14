@@ -1,0 +1,14 @@
+# 构建镜像时排除的文件（镜像只需要 src/ corpus/ docs/ 与元数据）
+.git
+.github
+data
+node_modules
+.env
+.env.*
+!.env.example
+*.save.json
+docs/screenshot.png
+.vscode
+.idea
+.DS_Store
+Thumbs.db

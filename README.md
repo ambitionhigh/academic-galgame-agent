@@ -25,6 +25,7 @@
 
 - [它是什么](#它是什么)
 - [快速开始](#快速开始)
+- [🌐 在线体验 / 部署](#-在线体验--部署)
 - [在 Trae 中使用](#在-trae-中使用)
 - [玩法](#玩法)
 - [苏格拉底式教学](#苏格拉底式教学)
@@ -99,6 +100,42 @@ npm start          # 等同 node src/server/server.js
 ```bash
 npm run smoke      # 引擎 + 检索 + 会话的 12 项离线自测，不联网、不花 token
 ```
+
+---
+
+## 🌐 在线体验 / 部署
+
+本项目**零依赖、自带 DEMO 模式**，因此非常适合部署成公开的在线体验：
+
+> **未配置任何 API Key 时自动进入 DEMO 模式** —— UI、引擎、数值、战斗、存档全部照常工作，只是老师的提问来自内置示例。
+> 这意味着你可以公开部署而**完全不暴露任何密钥**。
+
+### 方式一：Render 一键部署（推荐，免费）
+
+1. 用 GitHub 登录 [Render](https://render.com)
+2. **New → Blueprint** → 选择本仓库
+3. Render 会自动读取仓库里的 [`render.yaml`](./render.yaml)，点 **Deploy**
+4. 等 1~2 分钟，拿到形如 `https://academic-galgame-agent.onrender.com` 的公开地址
+
+无需填任何环境变量。若想让它用**真模型**（不建议公开部署时这么做，等于把你的 Key 给所有人用），在 Render 的环境变量里加 `ARK_API_KEY` / `ARK_MODEL`。
+
+### 方式二：Docker（任意容器平台）
+
+```bash
+docker build -t academic-galgame-agent .
+docker run -p 8787:8787 -e HOST=0.0.0.0 academic-galgame-agent
+# 打开 http://localhost:8787
+```
+
+仓库自带 [`Dockerfile`](./Dockerfile)，零依赖故镜像极小、启动极快；健康检查端点为 `/api/health`。
+
+### 方式三：本机运行
+
+```bash
+npm start        # 打开 http://127.0.0.1:8787
+```
+
+> ⚠️ **公开部署的已知限制**：当前为单实例共享存档，多个访客会操作同一份进度。若需要「每个访客独立存档」，需要引入按会话隔离（可提 issue）。
 
 ---
 
