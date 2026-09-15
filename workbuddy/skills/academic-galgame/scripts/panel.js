@@ -14,6 +14,7 @@ import { createState, migrateState, statusView } from './engine/game.js'
 import { battleView } from './engine/battle.js'
 import { listMaterials } from './materials.js'
 import { credsStatus } from './ima.js'
+import { llmStatus } from './llm.js'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 const PANEL_DIR = join(HERE, '..', 'panel')
@@ -69,6 +70,7 @@ export function startPanel({ port = 8790, host = '127.0.0.1' } = {}) {
       const { state, battle } = loadAll()
       const mats = listMaterials()
       const ima = credsStatus()
+      const llm = llmStatus()
       return sendJson(res, 200, {
         ok: true,
         save: SAVE,
@@ -76,6 +78,7 @@ export function startPanel({ port = 8790, host = '127.0.0.1' } = {}) {
         battle: battleView(battle),
         materials: { count: mats.count, totalChars: mats.totalChars },
         ima: { configured: ima.configured, boundSubjects: ima.boundSubjects },
+        llm: { mode: llm.mode, configured: llm.configured, model: llm.llmModel },
         serverTime: Date.now(),
       })
     }

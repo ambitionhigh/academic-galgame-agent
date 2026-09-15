@@ -31,10 +31,12 @@ chmod +x install.sh && ./install.sh
 ├── academic-galgame/          # 主技能：鲸鱼娘老师 + 游戏状态 CLI + 教材库 + ima + 动画面板
 │   ├── SKILL.md
 │   ├── scripts/
-│   │   ├── galgame.js         # 状态 CLI（status/onboard/panel/apply/battle/materials/ima/retrieve）
+│   │   ├── galgame.js         # 状态 CLI（status/onboard/panel/apply/battle/materials/ima/llm/judge/retrieve）
 │   │   ├── panel.js           # 实时动画面板服务（零依赖 HTTP，与 CLI 共用存档）
 │   │   ├── materials.js       # 教材库：导入 / 列表 / 学科标注 / 检索
-│   │   ├── ima.js             # ima 知识库：凭证 / 列库 / 绑定 / 检索
+│   │   ├── ima.js             # ima 知识库：凭证 / 列库 / 绑定 / 检索（必填项）
+│   │   ├── llm.js             # LLM：自备 OpenAI 兼容 API + 判分（可选项）
+│   │   ├── creds.js           # 本地凭证读写（ima 与 LLM 共用一份，权限 0600）
 │   │   ├── extract.js         # 文本提取（.md/.txt/.docx/.pdf，零依赖）
 │   │   └── engine/            # 内嵌游戏引擎（状态机 / 战斗 / 配置）
 │   ├── panel/index.html       # 面板页面（立绘逐帧动画 / 数值变化高亮 / 战斗浮层）
@@ -87,9 +89,8 @@ dir %USERPROFILE%\.workbuddy\skills  # Windows
 ### 它会怎么教
 
 1. 先 `status` 读进度，决定今天教什么；
-2. **若你还没导入任何资料**（`setup.needed: true`），它会**主动告诉你**并请你二选一：
-   - **A. 导入本地教材** —— 手上有 `.md`/`.txt`/`.docx`/`.pdf` 笔记
-   - **B. 接入 ima 知识库** —— 资料在腾讯 ima 里
+2. **若你还没配 ima 知识库**（`setup.needed: true`），它会**主动告诉你这是必填项**，
+   并给出拿 Key 的步骤（ima.qq.com → 开放平台 / API → API Key + Client ID）；
    （这一步它不会跳过，因为**没有依据就不该开始教**）
 3. **抛一个具体情境**（例如「两片渔场，限量还是疯狂捕捞？」），**不直接讲定义**；
 4. 按六类提问逐层追问；你卡住时给 1~2 档提示，答错则降难度并把该点记入近期重点；
@@ -97,6 +98,21 @@ dir %USERPROFILE%\.workbuddy\skills  # Windows
 6. 达标时提示可以挑战领主 / 魔将 / 学科魔王。
 
 > 想单独看这份引导：`node $SKILL onboard`
+
+---
+
+## 二·三、只需要连两样东西
+
+这是这个技能包**对外部世界的全部依赖**：
+
+| 连接 | 是否必填 | 说明 |
+|---|---|---|
+| **① ima 知识库 API** | **必填** | 出题唯一的**真实依据来源**。技能里**没有内置语料**，不配就只能在开场如实说明「暂时没有你的资料」。 |
+| **② LLM** | **二选一 / 可不填** | **不填** = 用 **WorkBuddy 自己的积分**（默认）：讲解、出题、判分都由 WorkBuddy 自己的模型做。<br>**填了** = 技能自己调一个 OpenAI 兼容 API（火山方舟 / DeepSeek / OpenAI…），省你的 token 或指定更强的模型。 |
+
+本地教材（`materials`）是**可选加料**，用来补 ima 里没有的资料，**不替代 ima**。
+
+拿到 ima 的 API Key 与 Client ID：**https://ima.qq.com** → 左下角头像 → 开放平台 / API（`ima.qq.com/developer`）。
 
 ---
 
@@ -149,9 +165,10 @@ node $SKILL help
 
 | 命令 | 说明 |
 |---|---|
-| `status` | 等级 / HP / 好感度 / 各科熟练度 / 任务链 / 进行中的战斗 / **教材库 + ima + 首次引导** |
-| `onboard` | **首次使用引导**：没配资料时该怎么做（两条路 + 可直接执行的命令） |
+| `status` | 等级 / HP / 好感度 / 各科熟练度 / 任务链 / 进行中的战斗 / **ima + LLM + 教材库 + 首次引导** |
+| `onboard` | **首次使用引导**：必填项还差什么（逐条列出 ima / LLM / 本地教材的状态与做法） |
 | `apply` | 教学结算：`--subject` 必填，`--mastery` `--favor` `--hp` `--mood` `--note` 可选 |
+| `judge` | 判分：`--subject` `--question` `--answer` `[--points "要点1;要点2"]` → 正确度 0-100 + 盲点 + 追问 |
 | `add-subject` / `remove-subject` | 增删学科（至少保留一个） |
 | `battle-start` | 开战；`--enemy` = `lord` / `general` / `king` / `demon` |
 | `battle-apply` | 结算一次攻击；`--correctness`（0~1）、`--damage-enemy`、`--damage-self` |
@@ -194,19 +211,24 @@ node $SKILL retrieve --query "纳什均衡" --subject 博弈论       # ★ 检�
 
 ---
 
-## 三·六、ima 知识库（用你自己的知识库当教材）
+## 三·六、ima 知识库（**必填 —— 出题的唯一真实依据来源**）
 
-如果你有腾讯 **ima** 知识库，可以直接接进来 —— 每个知识库能**一键变成一门学科**。
+这个技能包**不含任何内置语料**：所有引用都必须来自**你自己的 ima 知识库**。
+每个知识库能**一键变成一门学科**。
 
 ```bash
 node $SKILL ima status                                        # 是否已配置（Key 打码显示）
 node $SKILL ima config --key <API Key> --client-id <Client ID> # 保存凭证
+node $SKILL ima test                                          # 连通性自检
 node $SKILL ima kbs                                           # 列出你的知识库（名称 → ID）
 node $SKILL ima add-subject --kb "博弈论大学习"                 # ★ 一键变成学科并绑定
 node $SKILL ima bind --subject 博弈论 --kb "博弈论大学习"        # 给已有学科绑定知识库
 node $SKILL ima unbind --subject 博弈论                        # 解除绑定
 node $SKILL ima clear                                         # 清除凭证与全部绑定
 ```
+
+**API Key 与 Client ID 从哪来**：**https://ima.qq.com** → 左下角头像 → 开放平台 / API（`ima.qq.com/developer`），
+两个都要填。
 
 典型对话：
 
@@ -221,8 +243,40 @@ node $SKILL ima clear                                         # 清除凭证与�
 | **凭证存放** | `~/.workbuddy/academic-galgame/credentials.json`，**只存本机**，写入时权限 `0600`（Windows 忽略） |
 | **环境变量优先** | `IMA_API_KEY` / `IMA_CLIENT_ID` / `IMA_KB_MAP` 会覆盖文件里的值（适合 CI 或临时用法） |
 | **域名可改** | `GALGAME_HOME` 可改整个凭证/存档目录 |
-| **未配置时** | `retrieve` 自动跳过 ima，回落本地教材库；两边都没有会**如实说明**，不会硬编 |
+| **未配置时** | `setup.needed = true`，技能**开场就会如实告诉用户必填项没做**，不会空讲 |
 | **检索接口** | `get_addable_knowledge_base_list` → `search_knowledge` → `get_media_info` → 取正文（每段截 1200 字） |
+
+---
+
+## 三·七、LLM（**可选，二选一**）
+
+**默认什么都不用填。** 不配就是「**WorkBuddy 积分模式**」：讲解、出题、判分全部由
+**WorkBuddy 自己的模型**完成 —— 不消耗额外 key，也不需要对任何第三方 API 付费。
+
+想让技能自己调一个模型（省 WorkBuddy 的积分额度，或用更强/更便宜的模型判分）才需要配：
+
+```bash
+node $SKILL llm status                                        # 看现在是「自备 API」还是「WorkBuddy 积分」模式
+node $SKILL llm config --key <Key> [--model <模型>] [--base-url <地址>]   # 任何 OpenAI 兼容接口
+node $SKILL llm test                                          # 连通性自检
+node $SKILL llm clear                                         # 清空自备 API，回到 WorkBuddy 积分模式
+```
+
+| 服务 | `--base-url` | 说明 |
+|---|---|---|
+| **火山方舟**（默认） | `https://ark.cn-beijing.volces.com/api/v3` | `--model` 填推理接入点 ID（`ep-...`）或模型名 |
+| **DeepSeek** | `https://api.deepseek.com/v1` | `--model deepseek-chat` |
+| **OpenAI** | `https://api.openai.com/v1` | `--model gpt-4o-mini` 等 |
+| **其它兼容服务** | 服务商给的 `/v1` 地址 | 只要兼容 `/chat/completions` 即可 |
+
+| 要点 | 说明 |
+|---|---|
+| **默认值** | base `https://ark.cn-beijing.volces.com/api/v3`，model `deepseek-v3-250324` |
+| **环境变量优先** | `LLM_API_KEY` / `LLM_MODEL` / `LLM_BASE_URL` |
+| **与 ima 共用凭证文件** | 同一个 `credentials.json`，互不干扰 |
+| **判分** | `judge` 在**自备 API 模式**下由模型给 `correctness` / `blindspots` / `nextQuestion`；<br>在 **WorkBuddy 积分模式**下返回 `needsAgentJudgement: true`，**由 WorkBuddy 自己判**，再调 `apply` 结算 |
+
+> 无论哪种模式，**游戏结算始终走同一个 `apply` / `battle-apply`** —— 数值不会因为模式不同而不一致。
 
 ### 检索优先级（教材库 → ima）
 
@@ -254,6 +308,13 @@ printf '# 纳什均衡\n\n均衡指任何一方单独改变策略都不会更好
 node $SKILL materials add --path /tmp/t.md --subject 博弈论
 node $SKILL retrieve --query 纳什均衡 --subject 博弈论   # ok=true，能看到上面那句话
 node $SKILL retrieve --query 纳什均衡 --subject 健康     # ok=false（该科无可用教材）
+
+# 两条连接自检
+node $SKILL onboard                    # 看 setup.requirements：ima 必填那条 done 了吗
+node $SKILL ima test                   # 未配置 → ok:false，并提示先 ima config（这就是必填项没做）
+node $SKILL llm test                   # 未配置 → ok:true（WorkBuddy 积分模式，属正常）
+node $SKILL judge --subject 博弈论 --answer "均衡就是谁都不想单独改" --points "单方面偏离"
+                                       # 未配自备 API → needsAgentJudgement:true（由 Agent 自己判）
 ```
 
 ---
@@ -297,8 +358,8 @@ Remove-Item "$HOME\.workbuddy\academic-galgame" -Recurse -Force
 | 教学引擎 | `src/engine/` | `skills/academic-galgame/scripts/engine/`（同步副本） |
 | 界面 | galgame Web 界面（立绘 / 属性面板 / 战斗浮层） | **本地实时动画面板**（`panel` 命令）+ 对话 |
 | 触发方式 | 打开网页 | WorkBuddy 自动匹配或 `@技能名` |
-| 模型来源 | 用户自带火山方舟 Key | **WorkBuddy 自身模型** |
-| **教材来源** | 拖拽上传 `.md/.docx`（IndexedDB 持久化）+ **ima 知识库** | **`materials add`** 本地文件/目录 + **ima 知识库** |
+| 模型来源 | 用户自带火山方舟 Key | **WorkBuddy 自身模型/积分**（默认），或 `llm config` 填自备 OpenAI 兼容 API |
+| **教材来源** | 拖拽上传 `.md/.docx`（IndexedDB 持久化）+ **ima 知识库** | **ima 知识库（必填）** + `materials add` 本地文件/目录（可选加料） |
 | 学科来源 | 从 ima 知识库**一键添加为学科**，或手动 | **`ima add-subject`** 一键从知识库建科，或手动 `add-subject` |
 | 检索回落 | 上传教材 → ima → 内置示例语料 | 本地教材库 → ima（**没有内置语料**，两边都没有就如实说明） |
 

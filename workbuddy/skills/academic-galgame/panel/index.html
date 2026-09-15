@@ -28,6 +28,7 @@
   @keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}
   .chip{font-size:11.5px;padding:3px 9px;border-radius:999px;border:1px solid var(--line);color:var(--muted);background:rgba(255,255,255,.04)}
   .chip b{color:var(--text)}
+  .chip.off{border-color:rgba(214,72,96,.55);color:#e78a99}
 
   main{display:grid;grid-template-columns:300px 1fr;gap:12px;align-items:start}
   .stage{position:relative;border:1px solid var(--line);border-radius:14px;padding:14px;
@@ -198,7 +199,13 @@ function render(d){
   $('mood').textContent = MOOD[g.mood] || MOOD.idle
   $('tier').textContent = '好感档位 ' + g.whaleTier
   setSprite(g.imageKey, g.imageFrames)
-  $('src-chip').textContent = d.ima && d.ima.configured ? 'ima 已接' : (d.materials && d.materials.count ? ('教材 ' + d.materials.count + ' 份') : '无资料')
+  // 数据源小标签：ima（必填）+ LLM 模式（自备 API / WorkBuddy 积分）
+  const imaTxt = d.ima && d.ima.configured ? 'ima 已接' : 'ima 未接'
+  const matTxt = d.materials && d.materials.count ? ('教材 ' + d.materials.count + ' 份') : '无教材'
+  const llmTxt = d.llm && d.llm.configured ? '自备 API' : 'WB 积分'
+  const chip = $('src-chip')
+  chip.textContent = imaTxt + ' · ' + matTxt + ' · ' + llmTxt
+  chip.classList.toggle('off', !(d.ima && d.ima.configured))
 
   // 学科
   const ul = $('subjects'); ul.innerHTML = ''

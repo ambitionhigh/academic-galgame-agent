@@ -8,27 +8,20 @@
 //   get_addable_knowledge_base_list { limit }            → data.addable_knowledge_base_list[{ id, name }]
 //   search_knowledge { knowledge_base_id, query, limit } → data.info_list[{ media_id, title }]
 //   get_media_info { media_id }                          → data.url_info.url（带签名的正文地址）
-import { readFileSync, writeFileSync, mkdirSync, chmodSync } from 'node:fs'
-import { homedir } from 'node:os'
-import { join } from 'node:path'
+import { readCredsFile, saveCreds, mask, HOME, CRED_FILE } from './creds.js'
 
 const HOST = 'ima.qq.com'
 const BASE = '/openapi/wiki/v1'
 const MAX_CHARS = 1200
 const MAX_SECTIONS = 3
 
-export const HOME = process.env.GALGAME_HOME || join(homedir(), '.workbuddy', 'academic-galgame')
-export const CRED_FILE = join(HOME, 'credentials.json')
+export { HOME, CRED_FILE, saveCreds }
 
 /* ══════════ 凭证 ══════════ */
 
-function readFileCreds() {
-  try { return JSON.parse(readFileSync(CRED_FILE, 'utf8')) || {} } catch { return {} }
-}
-
 /** 生效凭证：环境变量 > 本地文件 */
 export function loadCreds() {
-  const f = readFileCreds()
+  const f = readCredsFile()
   let kbMap = f.kbMap || {}
   if (process.env.IMA_KB_MAP) {
     try { kbMap = JSON.parse(process.env.IMA_KB_MAP) } catch { /* 用文件里的 */ }
@@ -39,17 +32,6 @@ export function loadCreds() {
     kbMap,
   }
 }
-
-/** 合并写入本地凭证文件（权限 0600） */
-export function saveCreds(patch) {
-  const next = { ...readFileCreds(), ...patch }
-  mkdirSync(HOME, { recursive: true })
-  writeFileSync(CRED_FILE, JSON.stringify(next, null, 2), { encoding: 'utf8', mode: 0o600 })
-  try { chmodSync(CRED_FILE, 0o600) } catch { /* Windows 上忽略 */ }
-  return next
-}
-
-const mask = (v) => (v ? `${v.slice(0, 6)}…${v.slice(-4)}（长度 ${v.length}）` : '')
 
 export function credsStatus() {
   const c = loadCreds()

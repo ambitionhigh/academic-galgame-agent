@@ -27,6 +27,20 @@ agent_created: true
 4. **出题依据必须来自用户提供的资料**（知识库/教材/上下文），**不得编造**数据或文献。
 5. **学科以当前状态里的列表为准**，不要臆造学科名；要学新课先 `add-subject`。
 
+## 只需要连两样东西
+
+这个技能对外部世界的依赖**只有两条**，别的都能自己跑：
+
+| 连接 | 是否必填 | 说明 |
+|---|---|---|
+| **① ima 知识库 API** | **必填** | 出题唯一的**真实依据来源**。没配就只能在开场如实说明「暂时没有你的资料」。 |
+| **② LLM** | **二选一 / 可不填** | 不填 = 用 **WorkBuddy 自己的积分**（默认，由你 Agent 自己讲解与判分）；想用自己 key 就 `llm config` 填一个 OpenAI 兼容 API。 |
+
+本地教材（`materials`）是**可选加料**，用来补 ima 里没有的资料，**不替代 ima**。
+
+> ⚠️ 开场第一件事：`node $SKILL status` 看 `setup.needed`。
+> 只要 ima 没配，就是必填项没做 —— 别硬着头皮空讲。
+
 ## 工具：galgame CLI
 
 所有游戏状态都通过这个 CLI 读写（每次调用独立进程，状态落在 `~/.workbuddy/academic-galgame/save.json`）。
@@ -71,7 +85,51 @@ node $SKILL panel --port 8790        # 长驻进程 → 必须在后台运行
 - 用户没开口也可以主动建议开启：「要不要开个面板？能看到鲸鱼娘实时反应。」
 - 端口被占用就换一个（`--port 8791`）。
 
-### 教材库（**出题的真实依据，务必用**）
+### ima 知识库（**必填 —— 出题的唯一真实依据来源**）
+
+```bash
+node $SKILL ima status                                        # 是否已配置（Key 打码显示）
+node $SKILL ima config --key <API Key> --client-id <Client ID> # 保存凭证（只存本机，权限 0600）
+node $SKILL ima test                                          # 连通性自检
+node $SKILL ima kbs                                           # 列出用户的知识库（名称 → ID）
+node $SKILL ima add-subject --kb "博弈论大学习"                 # ★ 一键把知识库变成学科并绑定
+node $SKILL ima bind --subject 博弈论 --kb "博弈论大学习"        # 给已有学科绑定知识库
+node $SKILL ima unbind --subject 博弈论                        # 解除绑定
+node $SKILL ima clear                                         # 清除凭证与全部绑定
+```
+
+- **为什么必填**：技能里**没有内置语料**，所有引用都要来自用户自己的知识库，否则就是编。
+- 拿 Key 的地方：**https://ima.qq.com** → 左下角头像 → 开放平台 / API（`ima.qq.com/developer`），
+  会给出 **API Key** 与 **Client ID**（两个都要）。
+- 用户说「**用我的 X 知识库学 Y**」时：先 `ima kbs` 确认知识库名，再 `ima add-subject --kb X`。
+- 用户要给某学科换来源时：`ima bind`。
+- 绑定了知识库的学科，`retrieve` 会去该知识库取真实内容（带原文片段）。
+- **凭证只存本机** `~/.workbuddy/academic-galgame/credentials.json`，**绝不写进对话或提交**。
+- 也可以用环境变量代替：`IMA_API_KEY` / `IMA_CLIENT_ID`。
+
+### LLM（**可选，二选一**）
+
+**默认什么都不用填** —— 不配就是「WorkBuddy 积分模式」：讲解、出题、判分全由你（WorkBuddy 自己的模型）完成。
+
+想让技能自己调一个模型（省你的 token，或指定更强的模型）才需要配：
+
+```bash
+node $SKILL llm status                                        # 看现在是「自备 API」还是「WorkBuddy 积分」模式
+node $SKILL llm config --key <Key> [--model <模型>] [--base-url <地址>]   # 任何 OpenAI 兼容接口
+node $SKILL llm test                                          # 连通性自检
+node $SKILL llm clear                                         # 回到 WorkBuddy 积分模式
+node $SKILL judge --subject 博弈论 --question "<问题>" --answer "<玩家回答>" [--points "要点1;要点2"]
+```
+
+- 默认接口：`https://ark.cn-beijing.volces.com/api/v3`（火山方舟），默认模型 `deepseek-v3-250324`；
+  用 DeepSeek / OpenAI / 其它兼容服务时加 `--base-url`。
+- 也可以用环境变量：`LLM_API_KEY` / `LLM_MODEL` / `LLM_BASE_URL`。
+- **`judge` 的两种返回**：
+  - `ok: true` → 已由自备 API 判出 `correctness`（0-100）、`blindspots`、`nextQuestion`，你据此调 `apply`；
+  - `ok: false, needsAgentJudgement: true` → **没配自备 API，由你自己判**：按知识点给 0-100 正确度、挑盲点、写追问，再调 `apply` 写回游戏。
+- 无论哪种模式，**结算都走同一个 `apply`**，游戏数值不会因为模式不同而不一致。
+
+### 教材库（可选加料，**不替代 ima**）
 
 ```bash
 node $SKILL materials list                                   # 看已导入的教材
@@ -87,23 +145,6 @@ node $SKILL retrieve --query "纳什均衡" --subject 博弈论        # ★ 检
 - `retrieve` 返回 `ok:false` 时（两边都没有依据 / 该学科无可用教材 / 没命中），
   **如实告诉用户缺什么**，并建议导入教材或配置知识库，而不是硬讲。
 - 学科语义：教材标了学科 → 只在该学科可用；留空 → **通用**，所有学科可用。
-
-### ima 知识库（可选 —— 用用户自己的知识库当教材）
-
-```bash
-node $SKILL ima status                                        # 是否已配置（Key 打码显示）
-node $SKILL ima config --key <API Key> --client-id <Client ID> # 保存凭证（只存本机，权限 0600）
-node $SKILL ima kbs                                           # 列出用户的知识库（名称 → ID）
-node $SKILL ima add-subject --kb "博弈论大学习"                 # ★ 一键把知识库变成学科并绑定
-node $SKILL ima bind --subject 博弈论 --kb "博弈论大学习"        # 给已有学科绑定知识库
-node $SKILL ima unbind --subject 博弈论                        # 解除绑定
-node $SKILL ima clear                                         # 清除凭证与全部绑定
-```
-
-- 用户说「**用我的 X 知识库学 Y**」时：先 `ima kbs` 确认知识库名，再 `ima add-subject --kb X`。
-- 用户要给某学科换来源时：`ima bind`。
-- 绑定了知识库的学科，`retrieve` 会去该知识库取真实内容（带原文片段）。
-- **凭证只存本机** `~/.workbuddy/academic-galgame/credentials.json`，**绝不写进对话或提交**。
 
 ## 工作流
 
@@ -123,18 +164,19 @@ node $SKILL status
 
 ### 第 1.5 步：首次使用引导（`setup.needed === true` 时必须做）
 
-当 `status` 返回 `setup.needed: true`，说明**既没有导入教材、也没有绑定知识库** ——
-此时你**没有任何真实依据**。**不要直接开始空讲**，而要：
+`status` 返回的 `setup.requirements` 会逐条列出三件事的状态（ima / LLM / 本地教材）。
+**只要 ima 那条 `done:false`，就是必填项没做** —— 此时你**没有任何真实依据**，**不要直接开始空讲**，而要：
 
-1. 用一两句话说明情况（借用 `setup.reason` 的说法）；
-2. **主动问用户选哪条路**（照 `setup.options` 念，二选一即可，不必长篇）：
-   - **A. 导入本地教材** —— 手上有 `.md`/`.txt`/`.docx`/`.pdf` 笔记或讲义
-   - **B. 接入 ima 知识库** —— 资料在腾讯 ima 里
-3. 用户选好后，**照 `setup.options[].steps` 里的命令替他执行**（路径已带好，直接可用），
-   再用 `retrieve` 验证能检索到，然后才开始教学。
+1. 用一两句话说明情况（借用 `setup.reason` 的说法），**明确说这是必填项**，不是可选项；
+2. 把拿 API Key 的地方告诉用户（照 `setup.steps` 念）：
+   **https://ima.qq.com** → 左下角头像 → 开放平台 / API，会给出 **API Key** 与 **Client ID**；
+3. 用户给回来后，**照 `setup.steps` 里的命令替他执行**（路径已带好，直接可用）；
+4. 用 `retrieve` 验证能检索到，然后才开始教学。
 
-> 需要单独拿这份引导时，可以执行 `node $SKILL onboard`（输出与 `setup` 相同）。
-> 用户说「先随便聊聊」时，可以先用你自己的通用知识陪聊，但要**明确说明没有引用他的资料**。
+> - LLM 那条**不用问、不用配**：不填就是 WorkBuddy 积分模式，你自己讲解和判分即可。
+>   用户主动说「我想用我自己的 key」时再引导 `llm config`。
+> - 需要单独拿这份引导时，执行 `node $SKILL onboard`（输出与 `setup` 相同）。
+> - 用户说「先随便聊聊」时，可以先用你自己的通用知识陪聊，但要**明确说明没有引用他的资料**。
 
 ### 第 2 步：出题前先取依据（**别凭记忆编**）
 
@@ -178,7 +220,18 @@ node $SKILL retrieve --query "纳什均衡" --subject 博弈论
 
 ### 第 5 步：立刻结算（关键，别忘）
 
-判定完**马上**调用 CLI，再输出文字回复：
+判定完**马上**调用 CLI，再输出文字回复。
+
+**想省点自己的判断力气**时，可以先让技能判（可选一步）：
+
+```bash
+node $SKILL judge --subject 博弈论 --question "为什么两家都限量却双双疯狂捕捞？" \
+  --answer "<玩家原话>" --points "单方面偏离;占优策略;重复博弈的惩罚机制"
+```
+
+- 返回 `ok:true` → 直接用它的 `correctness`（0-100）算分；
+- 返回 `needsAgentJudgement:true` → 说明没配自备 API，**由你自己判**：读知识点 + 玩家原话，给 0-100 正确度、挑盲点、写下一个追问。
+- 也可以跳过 `judge`，自己判 —— 两种模式都只是「谁来做判断」，**游戏结算始终走下面的 `apply`**。
 
 ```bash
 # 独立答对
@@ -223,7 +276,8 @@ node $SKILL battle-apply --correctness 0.8 --note "给出权责平等的制度�
 每次回复前自查：
 
 - [ ] 我**没有**直接给出答案，而是用问题引导？
-- [ ] 若 `setup.needed` 为 true，我是否**先引导用户接入资料**（两条路二选一），而不是空讲？
+- [ ] 我是否确认了 **ima 知识库这条必填项已完成**（`setup.requirements` 里 ima 那项 `done:false` 时，我是否先引导接入而不是空讲）？
+- [ ] LLM 那条我**没有瞎折腾**：没配置就用 WorkBuddy 积分模式自己讲解判分，只有用户主动要求才引导 `llm config`？
 - [ ] 我是否**建议/启动了实时面板**，让用户能看到动画反馈而不是只有文字？
 - [ ] 出题前**调用过 `retrieve`**？内容来自**教材库或 ima 知识库**的真实片段，而不是我凭记忆编的？
 - [ ] 若 `retrieve` 没命中（两边都没配 / 该科无依据 / 没搜到），我是否**如实说明**并给出具体建议，而不是硬讲？
@@ -239,4 +293,5 @@ node $SKILL battle-apply --correctness 0.8 --note "给出权责平等的制度�
 - **教材库位置**：`${GALGAME_MATERIALS:-~/.workbuddy/academic-galgame/materials}`
   （`index.json` 元数据 + `<id>.txt` 提取后的正文）
 - **存档位置**：`${GALGAME_SAVE:-~/.workbuddy/academic-galgame/save.json}`（含 `{ state, battle }`）
-- **ima 凭证位置**：`~/.workbuddy/academic-galgame/credentials.json`（只存本机，权限 0600；可用 `GALGAME_HOME` 改目录）
+- **凭证位置**：`~/.workbuddy/academic-galgame/credentials.json`（ima 与 LLM 共用一份；只存本机，权限 0600；可用 `GALGAME_HOME` 改目录）
+- **环境变量**：`IMA_API_KEY` / `IMA_CLIENT_ID` ｜ `LLM_API_KEY` / `LLM_MODEL` / `LLM_BASE_URL`（优先级高于文件）
