@@ -51,7 +51,25 @@ node $SKILL battle-start --subject 博弈论 --enemy lord     # lord|general|kin
 node $SKILL battle-apply --correctness 0.8 --damage-enemy 0 --damage-self 0 --note "..."
 node $SKILL battle-retreat
 node $SKILL reset
+node $SKILL onboard                      # 首次使用引导（没配资料时）
+node $SKILL panel --port 8790            # 实时动画面板（长驻，后台运行）
 ```
+
+### 实时动画面板（**强烈建议开启**）
+
+纯文字撑不起 galgame 的手感。这个面板跟 CLI **共用同一份存档**：
+你在对话里推进游戏，用户在浏览器里看到鲸鱼娘**实时动起来**（立绘逐帧动画、数值变化高亮、战斗血条、新记录淡入）。
+
+```bash
+node $SKILL panel --port 8790        # 长驻进程 → 必须在后台运行
+```
+
+启动后把地址告诉用户：**http://127.0.0.1:8790**
+
+- **进程不会退出**（它是个 HTTP 服务），所以要用后台方式启动，不要阻塞对话；
+- 面板每 0.8 秒自动拉一次状态，**你不需要为它做任何额外操作** —— 照常调 `apply` / `battle-*` 即可；
+- 用户没开口也可以主动建议开启：「要不要开个面板？能看到鲸鱼娘实时反应。」
+- 端口被占用就换一个（`--port 8791`）。
 
 ### 教材库（**出题的真实依据，务必用**）
 
@@ -99,7 +117,9 @@ node $SKILL status
 - 看**任务链进度**（`quest.lord/general/king`）判断是否有可挑战的关卡；
 - 看 `subjects` 确认有哪些学科可教；
 - 看 `materials` / `ima` 确认有没有可用的真实依据；
-- ⚠️ **看 `setup.needed`** —— 见下面「首次使用引导」。
+- ⚠️ **看 `setup.needed`** —— 见下面「首次使用引导」；
+- 💡 **建议顺手开面板**（`node $SKILL panel` 后台运行）—— 用户在浏览器里能看到鲸鱼娘实时动起来，
+  比纯文字反馈好得多；告诉他地址即可，之后你**照常走 CLI**，面板会自动更新。
 
 ### 第 1.5 步：首次使用引导（`setup.needed === true` 时必须做）
 
@@ -204,6 +224,7 @@ node $SKILL battle-apply --correctness 0.8 --note "给出权责平等的制度�
 
 - [ ] 我**没有**直接给出答案，而是用问题引导？
 - [ ] 若 `setup.needed` 为 true，我是否**先引导用户接入资料**（两条路二选一），而不是空讲？
+- [ ] 我是否**建议/启动了实时面板**，让用户能看到动画反馈而不是只有文字？
 - [ ] 出题前**调用过 `retrieve`**？内容来自**教材库或 ima 知识库**的真实片段，而不是我凭记忆编的？
 - [ ] 若 `retrieve` 没命中（两边都没配 / 该科无依据 / 没搜到），我是否**如实说明**并给出具体建议，而不是硬讲？
 - [ ] 本轮若做了判定，**已经调用 `apply`**（或战斗用 `battle-apply`）？

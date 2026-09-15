@@ -1,0 +1,265 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>学术galgame · 实时面板</title>
+<style>
+  :root{
+    --bg:#061018; --panel:rgba(16,41,60,.72); --line:rgba(120,220,255,.18);
+    --text:#e8f6ff; --muted:#8fb3c7; --cyan:#57e0ff; --cyan-dim:#2a9fc4;
+    --gold:#ffd479; --pink:#ff8fb1; --green:#6ee7a8; --red:#ff6b81;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%}
+  body{
+    background:radial-gradient(1100px 620px at 18% -12%, #12354d 0%, var(--bg) 62%) fixed;
+    color:var(--text); font-family:"PingFang SC","Microsoft YaHei",system-ui,sans-serif;
+    display:grid; place-items:center; padding:18px;
+  }
+  .wrap{width:min(920px,100%); display:flex; flex-direction:column; gap:12px}
+
+  header{display:flex;align-items:center;justify-content:space-between;gap:12px}
+  h1{margin:0;font-size:17px;letter-spacing:.4px}
+  .sub{font-size:11.5px;color:var(--muted);margin-top:2px}
+  .right{display:flex;align-items:center;gap:8px}
+  .dot{width:8px;height:8px;border-radius:50%;background:var(--green);box-shadow:0 0 8px var(--green);animation:pulse 1.6s infinite}
+  .dot.off{background:var(--red);box-shadow:0 0 8px var(--red);animation:none}
+  @keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}
+  .chip{font-size:11.5px;padding:3px 9px;border-radius:999px;border:1px solid var(--line);color:var(--muted);background:rgba(255,255,255,.04)}
+  .chip b{color:var(--text)}
+
+  main{display:grid;grid-template-columns:300px 1fr;gap:12px;align-items:start}
+  .stage{position:relative;border:1px solid var(--line);border-radius:14px;padding:14px;
+    background:linear-gradient(180deg,rgba(87,224,255,.06),transparent 55%),var(--panel);
+    display:flex;flex-direction:column;align-items:center;gap:8px;overflow:hidden}
+  .glow{position:absolute;width:230px;height:230px;border-radius:50%;
+    background:radial-gradient(circle,rgba(87,224,255,.2),transparent 68%);filter:blur(6px);
+    animation:breathe 3.4s ease-in-out infinite}
+  @keyframes breathe{0%,100%{transform:scale(1);opacity:.75}50%{transform:scale(1.08);opacity:1}}
+  .sprite{position:relative;width:256px;height:256px;background-repeat:no-repeat;background-position:0 0;
+    transform:scale(.9);filter:drop-shadow(0 14px 26px rgba(0,0,0,.45));transition:filter .3s}
+  .sprite.hop{animation:hop .5s ease}
+  @keyframes hop{0%,100%{transform:scale(.9) translateY(0)}40%{transform:scale(.94) translateY(-12px)}}
+  .sprite.sad{animation:sad .7s ease}
+  @keyframes sad{0%,100%{transform:scale(.9) rotate(0)}30%{transform:scale(.88) rotate(-4deg)}70%{transform:scale(.9) rotate(3deg)}}
+  .caption{display:flex;gap:10px;font-size:12.5px}
+  .caption .mood{color:var(--cyan)}
+  .caption .tier{color:var(--muted)}
+
+  .panel{border:1px solid var(--line);border-radius:14px;background:var(--panel);padding:14px 16px;
+    display:flex;flex-direction:column;gap:10px}
+  .stat-head{display:flex;justify-content:space-between;font-size:12px;color:var(--muted)}
+  .stat-head b{color:var(--text);font-variant-numeric:tabular-nums}
+  .stat-head b.flash-up{animation:flashUp .9s ease}
+  .stat-head b.flash-down{animation:flashDown .9s ease}
+  @keyframes flashUp{0%{color:var(--green);text-shadow:0 0 12px var(--green)}100%{color:var(--text);text-shadow:none}}
+  @keyframes flashDown{0%{color:var(--red);text-shadow:0 0 12px var(--red)}100%{color:var(--text);text-shadow:none}}
+  .bar{height:9px;border-radius:999px;background:rgba(255,255,255,.09);overflow:hidden}
+  .fill{display:block;height:100%;width:0;border-radius:999px;transition:width .6s cubic-bezier(.22,1,.36,1)}
+  .fill.hp{background:linear-gradient(90deg,var(--green),#3fbf87)}
+  .fill.hp.low{background:linear-gradient(90deg,var(--red),#b83b52);animation:danger 1s infinite}
+  @keyframes danger{0%,100%{opacity:1}50%{opacity:.55}}
+  .fill.fav{background:linear-gradient(90deg,var(--pink),var(--gold))}
+  .fill.sub{background:linear-gradient(90deg,var(--cyan-dim),var(--cyan))}
+
+  .title{margin:4px 0 0;font-size:12.5px;color:var(--cyan);letter-spacing:.4px}
+  ul{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:8px}
+  .subject .head{display:flex;justify-content:space-between;font-size:12px}
+  .subject .head .name{color:var(--text)}
+  .subject .head .val{color:var(--muted);font-variant-numeric:tabular-nums}
+  .subject .chain{display:flex;gap:6px;font-size:11px;color:var(--muted);margin-top:3px}
+  .subject .chain .done{color:var(--gold)}
+  .subject .bar{height:6px;margin-top:4px}
+  .subject.conquered .name::after{content:" ★";color:var(--gold)}
+  .subject.new{animation:riseIn .5s ease}
+  @keyframes riseIn{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+
+  .log li{font-size:11.5px;color:var(--muted);line-height:1.5;padding-left:10px;position:relative;animation:riseIn .35s ease}
+  .log li::before{content:"•";position:absolute;left:0;color:var(--cyan-dim)}
+  .log li .s{color:var(--cyan)}
+
+  .battle{border:1px solid rgba(255,107,129,.35);border-radius:12px;padding:12px 14px;
+    background:linear-gradient(180deg,rgba(255,107,129,.12),rgba(6,16,24,.9));
+    display:none;flex-direction:column;gap:8px;animation:riseIn .35s ease}
+  .battle.on{display:flex}
+  .battle .enemy{display:flex;align-items:baseline;gap:10px}
+  .battle .enemy .n{font-size:16px;font-weight:700;color:var(--red)}
+  .battle .enemy .t{font-size:11.5px;color:var(--muted)}
+  .battle .fill.enemy{background:linear-gradient(90deg,var(--red),#b83b52)}
+  .meta{display:flex;gap:8px;flex-wrap:wrap}
+  .shake{animation:shake .45s}
+  @keyframes shake{0%,100%{transform:translateX(0)}20%{transform:translateX(-6px)}40%{transform:translateX(5px)}60%{transform:translateX(-3px)}80%{transform:translateX(2px)}}
+
+  .hint{font-size:11px;color:var(--muted);text-align:center}
+  @media(max-width:760px){ main{grid-template-columns:1fr} .sprite{transform:scale(.78)} }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div>
+      <h1>🐋 学术galgame · 实时面板</h1>
+      <div class="sub">Agent 在对话里推进游戏 · 这里自动更新并播放动画</div>
+    </div>
+    <div class="right">
+      <span class="chip">Lv.<b id="level">1</b></span>
+      <span class="chip" id="src-chip">—</span>
+      <span class="dot" id="dot" title="连接状态"></span>
+    </div>
+  </header>
+
+  <main>
+    <section class="stage">
+      <div class="glow"></div>
+      <div class="sprite" id="sprite"></div>
+      <div class="caption"><span class="mood" id="mood">平静</span><span class="tier" id="tier">好感档位 0</span></div>
+    </section>
+
+    <section class="panel">
+      <div>
+        <div class="stat-head"><span>HP</span><b id="hp">100 / 100</b></div>
+        <div class="bar"><i class="fill hp" id="hpbar"></i></div>
+      </div>
+      <div>
+        <div class="stat-head"><span>好感度</span><b id="fav">0</b></div>
+        <div class="bar"><i class="fill fav" id="favbar"></i></div>
+      </div>
+
+      <div class="battle" id="battle">
+        <div class="enemy"><span class="n" id="e-name">魔将</span><span class="t" id="e-title"></span></div>
+        <div class="stat-head"><span>敌方 HP</span><b id="e-hp">15 / 15</b></div>
+        <div class="bar"><i class="fill enemy" id="e-bar"></i></div>
+        <div class="meta">
+          <span class="chip" id="e-subject">—</span>
+          <span class="chip" id="e-diff">难度 1</span>
+          <span class="chip" id="e-streak">连对 0</span>
+        </div>
+      </div>
+
+      <h2 class="title">学科熟练度</h2>
+      <ul id="subjects"></ul>
+
+      <h2 class="title">近期记录</h2>
+      <ul class="log" id="log"></ul>
+    </section>
+  </main>
+
+  <div class="hint" id="hint">等待 Agent 推进…</div>
+</div>
+
+<script>
+const FRAME = 256
+const MOOD = { idle:'平静', joy:'开心', celebrate:'庆祝', disappointed:'失落', think:'思考',
+               error:'惊慌', working:'努力', play:'玩耍', eat:'进食', sleep:'休息', walk:'散步', welcome:'欢迎', wait:'等待', wake:'醒来', drag:'被拖走' }
+const $ = (id) => document.getElementById(id)
+const prev = { hp:null, fav:null, level:null, subjects:{}, battle:null }
+
+let spriteTimer = null, currentKey = ''
+function setSprite(key, frames){
+  const k = key || 'idle', n = Math.max(1, frames || 1)
+  if (currentKey === k + ':' + n && spriteTimer) return
+  currentKey = k + ':' + n
+  const el = $('sprite')
+  el.style.backgroundImage = `url(./assets/whale-girl/${k}.png)`
+  el.style.backgroundSize = `${n*FRAME}px ${FRAME}px`
+  el.style.backgroundPositionX = '0px'
+  if (spriteTimer) { clearInterval(spriteTimer); spriteTimer = null }
+  if (n <= 1) return
+  let f = 0
+  spriteTimer = setInterval(() => { f = (f+1)%n; el.style.backgroundPositionX = `${-f*FRAME}px` }, 220)
+}
+function play(el, cls){ if(!el) return; el.classList.remove(cls); void el.offsetWidth; el.classList.add(cls) }
+function flash(el, dir, text){
+  if (!el) return
+  const before = el.textContent
+  el.textContent = text
+  if (before !== text) play(el, dir === 'up' ? 'flash-up' : 'flash-down')
+}
+
+function render(d){
+  const g = d.game
+  $('dot').classList.remove('off')
+  $('hint').textContent = '已连接 · 存档 ' + (d.save || '')
+
+  // 等级 / HP / 好感：变化时高亮
+  flash($('level'), 'up', String(g.level))
+  const hpTxt = g.player.hp + ' / ' + g.player.maxHp
+  const hpDir = prev.hp === null || g.player.hp === prev.hp ? null : (g.player.hp > prev.hp ? 'up' : 'down')
+  if (hpDir) flash($('hp'), hpDir, hpTxt); else $('hp').textContent = hpTxt
+  $('hpbar').style.width = Math.round(g.player.hp / g.player.maxHp * 100) + '%'
+  $('hpbar').classList.toggle('low', g.player.hp / g.player.maxHp <= 0.3)
+
+  const favDir = prev.fav === null || g.whale.favorability === prev.fav ? null : (g.whale.favorability > prev.fav ? 'up' : 'down')
+  if (favDir) flash($('fav'), favDir, String(g.whale.favorability)); else $('fav').textContent = String(g.whale.favorability)
+  $('favbar').style.width = g.whale.favorability + '%'
+  if (favDir) play($('sprite'), favDir === 'up' ? 'hop' : 'sad')
+
+  $('mood').textContent = MOOD[g.mood] || MOOD.idle
+  $('tier').textContent = '好感档位 ' + g.whaleTier
+  setSprite(g.imageKey, g.imageFrames)
+  $('src-chip').textContent = d.ima && d.ima.configured ? 'ima 已接' : (d.materials && d.materials.count ? ('教材 ' + d.materials.count + ' 份') : '无资料')
+
+  // 学科
+  const ul = $('subjects'); ul.innerHTML = ''
+  for (const [name, v] of Object.entries(g.subjects || {})) {
+    const q = v.quest || {}
+    const li = document.createElement('li')
+    li.className = 'subject' + (v.conquered ? ' conquered' : '') + (prev.subjects[name] === undefined ? ' new' : '')
+    li.innerHTML = `
+      <div class="head"><span class="name">${esc(name)}</span><span class="val">${v.mastery} / 100</span></div>
+      <div class="bar"><i class="fill sub" style="width:${v.mastery}%"></i></div>
+      <div class="chain">
+        <span class="${q.lord?'done':''}">领主${q.lord?'✓':'✗'}</span>
+        <span class="${q.general?'done':''}">魔将${q.general?'✓':'✗'}</span>
+        <span class="${v.conquered?'done':''}">魔王${v.conquered?'✓':'✗'}</span>
+      </div>`
+    ul.appendChild(li)
+    prev.subjects[name] = v.mastery
+  }
+
+  // 战斗
+  const b = d.battle
+  const box = $('battle')
+  if (b) {
+    box.classList.add('on')
+    $('e-name').textContent = b.enemyName
+    $('e-title').textContent = b.enemyTitle
+    $('e-hp').textContent = b.enemyInfinite ? '∞' : (b.enemyHp + ' / ' + b.enemyMaxHp)
+    $('e-bar').style.width = b.enemyInfinite ? '100%' : Math.round(b.enemyHp / Math.max(1,b.enemyMaxHp) * 100) + '%'
+    $('e-subject').textContent = b.subject
+    $('e-diff').textContent = '难度 ' + b.difficulty
+    $('e-streak').textContent = '连对 ' + b.correctStreak
+    if (prev.battle && b.enemyHp < prev.battle.enemyHp) play(box, 'shake')
+    prev.battle = { enemyHp: b.enemyHp }
+  } else {
+    box.classList.remove('on'); prev.battle = null
+  }
+
+  // 日志
+  const log = $('log'); log.innerHTML = ''
+  for (const e of (g.log || []).slice(0, 6)) {
+    const li = document.createElement('li')
+    li.innerHTML = (e.subject ? `<span class="s">[${esc(e.subject)}]</span> ` : '') + esc(e.note)
+    log.appendChild(li)
+  }
+
+  prev.hp = g.player.hp; prev.fav = g.whale.favorability; prev.level = g.level
+}
+function esc(s){ return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])) }
+
+async function poll(){
+  try {
+    const r = await fetch('./api/state', { cache: 'no-store' })
+    render(await r.json())
+  } catch (e) {
+    $('dot').classList.add('off')
+    $('hint').textContent = '连接中断，重试中…'
+  }
+}
+setSprite('idle', 3)
+poll()
+setInterval(poll, 800)
+</script>
+</body>
+</html>

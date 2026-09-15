@@ -277,17 +277,30 @@ cd workbuddy && chmod +x install.sh && ./install.sh
 
 | 技能 | 作用 |
 |---|---|
-| **`academic-galgame`** | 主技能：鲸鱼娘老师的教学流程 + 游戏状态 CLI（`status` / `apply` / `battle-*` / `add-subject`）+ 内嵌引擎 |
+| **`academic-galgame`** | 主技能：鲸鱼娘老师的教学流程 + 游戏状态 CLI（`status` / `onboard` / `panel` / `apply` / `battle-*` / `materials` / `ima` / `retrieve`）+ 内嵌引擎 + 教材库 + ima 接入 |
 | **`socratic-questioning`** | 提问框架：六类提问 + 五种策略 + 验证清单 |
+
+### 🎬 不只有文字：本地实时动画面板
+
+WorkBuddy 是对话式 Agent，但 galgame 的手感需要**看得见**。面板与 CLI **共用同一份存档** ——
+Agent 在对话里推进游戏，浏览器里的鲸鱼娘**实时动起来**：
+
+```bash
+node ~/.workbuddy/skills/academic-galgame/scripts/galgame.js panel --port 8790
+# 打开 http://127.0.0.1:8790
+```
+
+立绘逐帧动画、数值涨跌闪色、好感变化时鲸鱼娘跳一下/低头、HP ≤30% 血条脉动、战斗震屏、新记录淡入。
+面板每 0.8 秒自动刷新，**Agent 不需要为它做任何额外操作**。
 
 ### 与 Trae 版的区别
 
 | | Trae 版（本仓库主体） | WorkBuddy 版（`workbuddy/`） |
 |---|---|---|
-| 形态 | 完整项目：Node 服务 + Web UI | 两个技能包（无 UI） |
+| 形态 | 完整项目：Node 服务 + Web UI | 两个技能包 |
 | 模型来源 | 用户自带火山方舟 Key | WorkBuddy 自身模型 |
-| 交互 | galgame Web 界面 | 全部走对话 |
-| 状态 | 服务端会话内存 | 技能内嵌 CLI 写 `~/.workbuddy/academic-galgame/save.json` |
+| 交互 | 浏览器里的 galgame 界面 | **对话 + 本地实时动画面板** |
+| 状态 | 服务端会话内存 | CLI 写 `~/.workbuddy/academic-galgame/save.json` |
 
 > 详细安装、命令表、自检步骤见 [`workbuddy/README.md`](./workbuddy/README.md)。
 

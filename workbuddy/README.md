@@ -28,14 +28,17 @@ chmod +x install.sh && ./install.sh
 
 ```
 ~/.workbuddy/skills/
-├── academic-galgame/          # 主技能：鲸鱼娘老师 + 游戏状态 CLI + 教材库 + ima
+├── academic-galgame/          # 主技能：鲸鱼娘老师 + 游戏状态 CLI + 教材库 + ima + 动画面板
 │   ├── SKILL.md
 │   ├── scripts/
-│   │   ├── galgame.js         # 状态 CLI（status/onboard/apply/battle/materials/ima/retrieve）
+│   │   ├── galgame.js         # 状态 CLI（status/onboard/panel/apply/battle/materials/ima/retrieve）
+│   │   ├── panel.js           # 实时动画面板服务（零依赖 HTTP，与 CLI 共用存档）
 │   │   ├── materials.js       # 教材库：导入 / 列表 / 学科标注 / 检索
 │   │   ├── ima.js             # ima 知识库：凭证 / 列库 / 绑定 / 检索
 │   │   ├── extract.js         # 文本提取（.md/.txt/.docx/.pdf，零依赖）
 │   │   └── engine/            # 内嵌游戏引擎（状态机 / 战斗 / 配置）
+│   ├── panel/index.html       # 面板页面（立绘逐帧动画 / 数值变化高亮 / 战斗浮层）
+│   ├── assets/whale-girl/     # 鲸鱼娘 15 张立绘精灵图
 │   └── references/
 │       └── game-design.md     # 完整数值表
 └── socratic-questioning/      # 提问框架技能（六类提问 / 五种策略）
@@ -94,6 +97,35 @@ dir %USERPROFILE%\.workbuddy\skills  # Windows
 6. 达标时提示可以挑战领主 / 魔将 / 学科魔王。
 
 > 想单独看这份引导：`node $SKILL onboard`
+
+---
+
+## 二·五、实时动画面板（**不要只有文字**）
+
+WorkBuddy 是对话式 Agent，但 galgame 的手感需要**看得见**。面板跟 CLI **共用同一份存档**：
+你在对话里推进游戏，浏览器里的鲸鱼娘就**实时动起来**。
+
+![实时面板](./screenshot-panel.png)
+
+```bash
+node $SKILL panel --port 8790        # 长驻进程 → 后台运行
+# 打开 http://127.0.0.1:8790
+```
+
+| 面板会动的地方 | 说明 |
+|---|---|
+| **立绘逐帧动画** | 15 张精灵图，按心情/好感档位切换，每张 1~3 帧循环播放 |
+| **数值变化高亮** | HP / 好感度 / 等级变化时**闪绿（涨）或闪红（跌）**，数字带渐隐光晕 |
+| **立绘反馈** | 好感涨 → 鲸鱼娘**跳一下**；跌 → **低头摇晃** |
+| **血条** | 宽度平滑过渡；HP ≤ 30% 变红并**脉动闪烁** |
+| **战斗浮层** | 敌 HP 减少时**震屏**；魔神显示 ∞ |
+| **学科列表** | 新学科**淡入**；熟练度条平滑增长；任务链 ✓/✗ |
+| **近期记录** | 新条目自上而下淡入 |
+
+**使用要点**：
+- `panel` 是**长驻 HTTP 服务**，不会自己退出 —— 必须后台运行，别阻塞对话；
+- 面板每 **0.8 秒**自动拉一次状态，**Agent 不需要为它做任何额外操作**，照常调 `apply` / `battle-*` 即可；
+- 端口被占用换一个（`--port 8791`）；`GALGAME_PANEL_PORT` 也可指定默认端口。
 
 ---
 
@@ -263,15 +295,15 @@ Remove-Item "$HOME\.workbuddy\academic-galgame" -Recurse -Force
 |---|---|---|
 | 形态 | 完整项目：Node 服务 + Web UI | 两个技能包（无 UI） |
 | 教学引擎 | `src/engine/` | `skills/academic-galgame/scripts/engine/`（同步副本） |
-| 界面 | galgame Web 界面（立绘 / 属性面板 / 战斗浮层） | 无，全部走对话 |
+| 界面 | galgame Web 界面（立绘 / 属性面板 / 战斗浮层） | **本地实时动画面板**（`panel` 命令）+ 对话 |
 | 触发方式 | 打开网页 | WorkBuddy 自动匹配或 `@技能名` |
 | 模型来源 | 用户自带火山方舟 Key | **WorkBuddy 自身模型** |
 | **教材来源** | 拖拽上传 `.md/.docx`（IndexedDB 持久化）+ **ima 知识库** | **`materials add`** 本地文件/目录 + **ima 知识库** |
 | 学科来源 | 从 ima 知识库**一键添加为学科**，或手动 | **`ima add-subject`** 一键从知识库建科，或手动 `add-subject` |
 | 检索回落 | 上传教材 → ima → 内置示例语料 | 本地教材库 → ima（**没有内置语料**，两边都没有就如实说明） |
 
-> ⚠️ `scripts/engine/` 是从主项目 `src/engine/` **同步的副本**（技能必须自包含）。
-> 改动主项目引擎后，用同步脚本更新，不要手抄：
+> ⚠️ `scripts/engine/` 与 `assets/whale-girl/` 都是从主项目**同步的副本**（技能必须自包含）。
+> 改动主项目后，用同步脚本更新，不要手抄：
 
 ```powershell
 .\sync-engine.ps1            # 同步（hash 比对 → 只复制变化的 → 复验一致）
@@ -282,5 +314,9 @@ Remove-Item "$HOME\.workbuddy\academic-galgame" -Recurse -Force
 ./sync-engine.sh --check
 ```
 
-同步脚本只搬运技能真正需要的三个文件：`config.js` / `game.js` / `battle.js`
-（`storage.js` / `session.js` 是服务端专用，不进技能包）。
+同步脚本管两组：
+
+| 组 | 源 | 目标 | 范围 |
+|---|---|---|---|
+| **引擎** | `src/engine/` | `scripts/engine/` | `config.js` / `game.js` / `battle.js`（`storage.js`/`session.js` 是服务端专用，不进技能包） |
+| **立绘** | `src/web/assets/whale-girl/` | `assets/whale-girl/` | 全部 PNG（15 张，约 2.25 MB） |

@@ -59,12 +59,17 @@ export function whaleTier(state) {
   return 0
 }
 
-/** 当前该显示哪张立绘（心情优先，过期回落到好感档位） */
-export function currentImageKey(state) {
+/** 生效中的心情：超过存活时间的视为已回落（返回 null） */
+export function effectiveMood(state) {
   if (state.mood && state.mood.name && STATE_FRAMES[state.mood.name] && (Date.now() - state.mood.at < MOOD_TTL_MS)) {
     return state.mood.name
   }
-  return TIER_IMAGE[whaleTier(state)] || 'idle'
+  return null
+}
+
+/** 当前该显示哪张立绘（心情优先，过期回落到好感档位） */
+export function currentImageKey(state) {
+  return effectiveMood(state) || TIER_IMAGE[whaleTier(state)] || 'idle'
 }
 
 /** 是否已解锁魔神（全部学科魔王通关 = 研究生） */
@@ -150,7 +155,7 @@ export function statusView(state, battle = null) {
     player: state.player,
     whale: state.whale,
     whaleTier: whaleTier(state),
-    mood: state.mood ? state.mood.name : null,
+    mood: effectiveMood(state),
     level: levelOf(state),
     totalMastery: totalMastery(state),
     derived: derivedAttributes(state),

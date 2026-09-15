@@ -131,6 +131,7 @@ function setupGuide(skillPath) {
 const HELP = `学术galgame CLI
   status                                          查看状态（含教材库/ima/首次使用引导）
   onboard                                         首次使用引导：没配资料时该怎么做
+  panel [--port 8790] [--host 127.0.0.1]          启动实时动画面板（长驻进程，请后台运行）
   apply --subject <名> [--mastery n] [--favor n] [--hp n] [--mood joy|disappointed|celebrate|think] [--note 文本]
   add-subject --name <名>                         新增学科
   remove-subject --name <名>                      删除学科
@@ -187,6 +188,16 @@ async function main() {
   // 首次使用引导：单独命令，方便老师主动调用
   if (cmd === 'onboard' || cmd === 'guide') {
     emit({ ok: true, cmd, ...setupGuide(process.argv[1]) })
+    return
+  }
+
+  /* ── 实时动画面板（长驻进程，请在后台运行） ── */
+  if (cmd === 'panel') {
+    const port = Number(a.port || process.env.GALGAME_PANEL_PORT || 8790)
+    const host = typeof a.host === 'string' ? a.host : '127.0.0.1'
+    const { startPanel } = await import('./panel.js')
+    startPanel({ port, host })
+    // 进程保持运行以提供服务；由调用方在后台管理
     return
   }
 
