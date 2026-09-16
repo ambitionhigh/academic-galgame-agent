@@ -1,8 +1,8 @@
 // GM（游戏主持 / 老师）编排层。
-// 负责：装配系统提示（人设 + 实时状态）→ 调火山方舟 → 执行工具调用 → 直到模型给出最终回复。
-// 未配置方舟时进入 demo 模式，保证 UI 与引擎依旧可玩。
+// 负责：装配系统提示（人设 + 实时状态）→ 调大模型 → 执行工具调用 → 直到模型给出最终回复。
+// 未配置模型时进入 demo 模式，保证 UI 与引擎依旧可玩。
 import { readFileSync } from 'node:fs'
-import { arkChat, isArkConfigured } from './ark.js'
+import { llmChat, isLlmConfigured } from './llm.js'
 import { retrieve } from './retriever.js'
 
 const PERSONA = readFileSync(new URL('./persona.md', import.meta.url), 'utf8')
@@ -197,7 +197,7 @@ ${renderState(this.session.status())}
   /**
    * 处理一条玩家消息。
    * @param {string} message
-   * @param {object} [creds] 本次请求携带的凭证（BYOK）：arkApiKey/arkModel/arkBaseUrl/imaApiKey/imaClientId/imaKbMap
+   * @param {object} [creds] 本次请求携带的凭证（BYOK）：llmApiKey/llmModel/llmBaseUrl/imaApiKey/imaClientId/imaKbMap
    * @param {Array<{name:string,text:string}>} [uploads] 本会话上传的教材
    * @returns {Promise<{reply:string, events:Array, state:object, demo:boolean}>}
    */
@@ -206,7 +206,7 @@ ${renderState(this.session.status())}
     const events = []
 
     // ── demo 模式：既没有请求凭证、服务端也没配凭证时，用示例提问驱动界面 ──
-    if (!isArkConfigured(creds)) {
+    if (!isLlmConfigured(creds)) {
       const reply = DEMO_PROMPTS[this.demoIndex % DEMO_PROMPTS.length]
       this.demoIndex++
       // 轮换学科结算，让 UI 的熟练度条也能看到变化
@@ -218,7 +218,7 @@ ${renderState(this.session.status())}
       return { reply, events, state, demo: true }
     }
 
-    // ── 真实模式：火山方舟 + 工具调用循环 ──
+    // ── 真实模式：大模型 + 工具调用循环 ──
     const messages = [{ role: 'system', content: this.buildSystemPrompt() }]
     for (const m of this.history) messages.push(m)
     if (text) messages.push({ role: 'user', content: text })
@@ -227,7 +227,7 @@ ${renderState(this.session.status())}
     for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
       // 最后一轮强制「只输出文字」，避免模型无限调工具、始终不给回复
       const isLastRound = round === MAX_TOOL_ROUNDS - 1
-      const { content, toolCalls } = await arkChat(messages, {
+      const { content, toolCalls } = await llmChat(messages, {
         tools: TOOLS,
         toolChoice: isLastRound ? 'none' : 'auto',
         temperature: 0.8,

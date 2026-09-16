@@ -4,10 +4,11 @@
 【BYOK 自带密钥 + 多用户隔离】
   · 每位访客一个会话（cookie `gal_sid`）-> 游戏进度互不干扰，服务端不落盘
   · 模型/知识库凭证由**浏览器**保存（localStorage），每次请求通过 HTTP 头带上：
-      x-ark-key / x-ark-model / x-ark-base
+      x-llm-key / x-llm-model / x-llm-base
       x-ima-key / x-ima-client-id / x-ima-kb-map
     -> 服务端**不存储任何用户凭证**，公开部署时可完全不配 Key
-  · 若服务端自己配了 ARK_*/IMA_* 环境变量，则作为缺省值兜底（适合自托管给自己用）
+    （为兼容早期版本，同时接受 x-ark-* 请求头与 ARK_* 环境变量作为别名）
+  · 若服务端自己配了 LLM_*/IMA_* 环境变量，则作为缺省值兜底（适合自托管给自己用）
 
 启动：python run.py      （默认 http://127.0.0.1:8787）
 """
@@ -24,7 +25,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from engine.session import GameSession
 from engine.storage import MemoryStorage
 from agent.gm import GameMaster
-from agent.ark import describe_ark, ark_chat
+from agent.llm import describe_llm, llm_chat
 from agent.retriever import retrieve, test_ima, ima_enabled, list_knowledge_bases
 
 from .env import load_env
@@ -96,9 +97,13 @@ def creds_from_headers(headers):
         except Exception:
             out[field] = v.strip()
 
-    pick('x-ark-key', 'arkApiKey')
-    pick('x-ark-model', 'arkModel')
-    pick('x-ark-base', 'arkBaseUrl')
+    pick('x-llm-key', 'llmApiKey')
+    pick('x-llm-model', 'llmModel')
+    pick('x-llm-base', 'llmBaseUrl')
+    # 兼容早期版本
+    pick('x-ark-key', 'llmApiKey')
+    pick('x-ark-model', 'llmModel')
+    pick('x-ark-base', 'llmBaseUrl')
     pick('x-ima-key', 'imaApiKey')
     pick('x-ima-client-id', 'imaClientId')
     pick_encoded('x-ima-kb-map', 'imaKbMap')
@@ -184,18 +189,19 @@ class Handler(BaseHTTPRequestHandler):
         method = self.command
         try:
             if pathname == '/api/health':
-                server_ark = describe_ark({})
+                server_llm = describe_llm({})      # 只反映服务端预置（BYOK 时为空）
                 creds = creds_from_headers(self.headers)
+                client_ok = bool(creds.get('llmApiKey') and creds.get('llmModel'))
                 return self.send_json(200, {
                     'ok': True,
                     'byok': True,
-                    'arkConfigured': bool(creds.get('arkApiKey') and creds.get('arkModel'))
-                                     if creds.get('arkApiKey') else server_ark['configured'],
-                    'model': creds.get('arkModel') or server_ark['model'] or None,
+                    'llmConfigured': client_ok or server_llm['configured'],
+                    'model': creds.get('llmModel') or server_llm['model'] or None,
                     'imaConfigured': ima_enabled(creds),
-                    'serverPreset': {'ark': server_ark['configured'], 'ima': ima_enabled({})},
-                    'demo': (not (creds.get('arkApiKey') and creds.get('arkModel')))
-                            and not server_ark['configured'],
+                    'serverPreset': {'llm': server_llm['configured'],
+                                     'ark': server_llm['configured'],
+                                     'ima': ima_enabled({})},
+                    'demo': (not client_ok) and not server_llm['configured'],
                     'sessions': len(sessions),
                 })
 
@@ -309,21 +315,21 @@ class Handler(BaseHTTPRequestHandler):
             if pathname == '/api/test' and method == 'POST':
                 body = self.read_body()
                 creds = creds_from_headers(self.headers)
-                kind = body.get('kind') or 'ark'
+                kind = body.get('kind') or 'llm'
                 if kind == 'ima':
                     r = test_ima(creds)
                     return self.send_json(200, {'ok': r.get('ok') is True,
                                                 'kind': 'ima', 'detail': r})
-                if not (creds.get('arkApiKey') and creds.get('arkModel')):
-                    return self.send_json(200, {'ok': False, 'kind': 'ark',
-                                                'error': '请先填写方舟 API Key 与接入点 ID'})
+                if not (creds.get('llmApiKey') and creds.get('llmModel')):
+                    return self.send_json(200, {'ok': False, 'kind': 'llm',
+                                                'error': '请先填写 API Key 与模型 ID'})
                 try:
-                    r = ark_chat([{'role': 'user', 'content': '只回复两个字：收到'}],
+                    r = llm_chat([{'role': 'user', 'content': '只回复两个字：收到'}],
                                  {'creds': creds, 'temperature': 0, 'timeoutMs': 30000})
-                    return self.send_json(200, {'ok': True, 'kind': 'ark',
+                    return self.send_json(200, {'ok': True, 'kind': 'llm',
                                                 'reply': r['content']})
                 except Exception as err:
-                    return self.send_json(200, {'ok': False, 'kind': 'ark',
+                    return self.send_json(200, {'ok': False, 'kind': 'llm',
                                                 'error': str(err)})
 
             # ── 静态 UI ──
@@ -357,9 +363,10 @@ class Handler(BaseHTTPRequestHandler):
 def main():
     server = ThreadingHTTPServer((HOST, PORT), Handler)
     server.daemon_threads = True
-    server_ark = describe_ark({})
-    mode = ('服务端预置方舟（模型：%s）—— 也可由访客自带 Key 覆盖' % server_ark['model']
-            if server_ark['configured']
+    server_llm = describe_llm({})
+    mode = ('服务端预置大模型（模型：%s，%s）—— 也可由访客自带 Key 覆盖'
+            % (server_llm['model'], server_llm['baseUrl'])
+            if server_llm['configured']
             else 'BYOK 模式（服务端未放任何 Key，由每位访客自带凭证）')
     print('\n  学术galgame Agent（Python · 纯标准库）已启动')
     print('  → http://%s:%s' % (HOST, PORT))

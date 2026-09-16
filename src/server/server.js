@@ -3,10 +3,11 @@
 // 【BYOK 自带密钥 + 多用户隔离】
 //  · 每位访客一个会话（cookie `gal_sid`）→ 游戏进度互不干扰，服务端不落盘
 //  · 模型/知识库凭证由**浏览器**保存（localStorage），每次请求通过 HTTP 头带上：
-//      x-ark-key / x-ark-model / x-ark-base
+//      x-llm-key / x-llm-model / x-llm-base
 //      x-ima-key / x-ima-client-id / x-ima-kb-map
 //    → 服务端**不存储任何用户凭证**，公开部署时可完全不配 Key
-//  · 若服务端自己配了 ARK_*/IMA_* 环境变量，则作为缺省值兜底（适合自托管给自己用）
+//    （为兼容早期版本，同时接受 x-ark-* 请求头与 ARK_* 环境变量作为别名）
+//  · 若服务端自己配了 LLM_*/IMA_* 环境变量，则作为缺省值兜底（适合自托管给自己用）
 //
 // 启动：node src/server/server.js   （默认 http://127.0.0.1:8787）
 import { createServer } from 'node:http'
@@ -18,7 +19,7 @@ import { loadEnv } from './env.js'
 import { GameSession } from '../engine/session.js'
 import { MemoryStorage } from '../engine/storage.js'
 import { GameMaster } from '../agent/gm.js'
-import { describeArk, arkChat } from '../agent/ark.js'
+import { describeLlm, llmChat } from '../agent/llm.js'
 import { retrieve, testIma, imaEnabled, listKnowledgeBases } from '../agent/retriever.js'
 
 loadEnv()
@@ -106,9 +107,13 @@ function credsFrom(req) {
     if (typeof v !== 'string' || !v.trim()) return
     try { out[field] = decodeURIComponent(v.trim()) } catch { out[field] = v.trim() }
   }
-  pick('x-ark-key', 'arkApiKey')
-  pick('x-ark-model', 'arkModel')
-  pick('x-ark-base', 'arkBaseUrl')
+  pick('x-llm-key', 'llmApiKey')
+  pick('x-llm-model', 'llmModel')
+  pick('x-llm-base', 'llmBaseUrl')
+  // 兼容早期版本
+  pick('x-ark-key', 'llmApiKey')
+  pick('x-ark-model', 'llmModel')
+  pick('x-ark-base', 'llmBaseUrl')
   pick('x-ima-key', 'imaApiKey')
   pick('x-ima-client-id', 'imaClientId')
   pickEncoded('x-ima-kb-map', 'imaKbMap')
@@ -167,16 +172,17 @@ const server = createServer(async (req, res) => {
   try {
     // ── API ──
     if (pathname === '/api/health') {
-      const serverArk = describeArk({})      // 只反映服务端预置（BYOK 时为空）
+      const serverLlm = describeLlm({})      // 只反映服务端预置（BYOK 时为空）
       const creds = credsFrom(req)
+      const clientOk = Boolean(creds.llmApiKey && creds.llmModel)
       return sendJson(res, 200, {
         ok: true,
         byok: true,                                   // 本服务支持自带密钥
-        arkConfigured: Boolean(creds.arkApiKey ? creds.arkModel : serverArk.configured),
-        model: creds.arkModel || serverArk.model || null,
+        llmConfigured: clientOk || serverLlm.configured,
+        model: creds.llmModel || serverLlm.model || null,
         imaConfigured: imaEnabled(creds),
-        serverPreset: { ark: serverArk.configured, ima: imaEnabled({}) },
-        demo: !(creds.arkApiKey && creds.arkModel) && !serverArk.configured,
+        serverPreset: { llm: serverLlm.configured, ark: serverLlm.configured, ima: imaEnabled({}) },
+        demo: !clientOk && !serverLlm.configured,
         sessions: sessions.size,
       })
     }
@@ -280,19 +286,19 @@ const server = createServer(async (req, res) => {
     if (pathname === '/api/test' && req.method === 'POST') {
       const body = await readBody(req)
       const creds = credsFrom(req)
-      const kind = body.kind || 'ark'
+      const kind = body.kind || 'llm'
       if (kind === 'ima') {
         const r = await testIma(creds)
         return sendJson(res, 200, { ok: r.ok === true, kind: 'ima', detail: r })
       }
-      if (!(creds.arkApiKey && creds.arkModel)) {
-        return sendJson(res, 200, { ok: false, kind: 'ark', error: '请先填写方舟 API Key 与接入点 ID' })
+      if (!(creds.llmApiKey && creds.llmModel)) {
+        return sendJson(res, 200, { ok: false, kind: 'llm', error: '请先填写 API Key 与模型 ID' })
       }
       try {
-        const r = await arkChat([{ role: 'user', content: '只回复两个字：收到' }], { creds, temperature: 0, timeoutMs: 30000 })
-        return sendJson(res, 200, { ok: true, kind: 'ark', reply: r.content })
+        const r = await llmChat([{ role: 'user', content: '只回复两个字：收到' }], { creds, temperature: 0, timeoutMs: 30000 })
+        return sendJson(res, 200, { ok: true, kind: 'llm', reply: r.content })
       } catch (err) {
-        return sendJson(res, 200, { ok: false, kind: 'ark', error: String((err && err.message) || err) })
+        return sendJson(res, 200, { ok: false, kind: 'llm', error: String((err && err.message) || err) })
       }
     }
 
@@ -306,9 +312,9 @@ const server = createServer(async (req, res) => {
 })
 
 server.listen(PORT, HOST, () => {
-  const serverArk = describeArk({})
-  const mode = serverArk.configured
-    ? `服务端预置方舟（模型：${serverArk.model}）—— 也可由访客自带 Key 覆盖`
+  const serverLlm = describeLlm({})
+  const mode = serverLlm.configured
+    ? `服务端预置大模型（模型：${serverLlm.model}，${serverLlm.baseUrl}）—— 也可由访客自带 Key 覆盖`
     : 'BYOK 模式（服务端未放任何 Key，由每位访客自带凭证）'
   console.log(`\n  学术galgame Agent 已启动`)
   console.log(`  → http://${HOST}:${PORT}`)

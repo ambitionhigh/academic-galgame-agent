@@ -12,7 +12,8 @@
     "start": "node src/server/server.js",
     "dev": "node --watch src/server/server.js",
     "smoke": "node scripts/smoke.js",
-    "check:ark": "node scripts/check-ark.js"
+    "check:llm": "node scripts/check-llm.js",
+    "check:ark": "node scripts/check-llm.js"
   },
   "keywords": [
     "ai-agent",
@@ -21,6 +22,9 @@
     "socratic",
     "education",
     "llm",
+    "openai-compatible",
+    "byok",
+    "deepseek",
     "volcengine",
     "ark",
     "trae"

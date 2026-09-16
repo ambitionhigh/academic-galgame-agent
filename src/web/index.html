@@ -20,7 +20,7 @@
       <div class="topbar-right">
         <span id="mode-badge" class="badge">连接中…</span>
         <span class="chip">Lv.<b id="level">1</b></span>
-        <button id="settings-btn" class="ghost-btn" title="填写你自己的方舟 / ima 凭证">⚙ 设置</button>
+        <button id="settings-btn" class="ghost-btn" title="填写你自己的大模型 / ima 凭证">⚙ 设置</button>
         <button id="reset-btn" class="ghost-btn" title="重置进度">重置</button>
       </div>
     </header>
@@ -104,20 +104,25 @@
 
       <p class="modal-note">
         🔒 下面填的凭证<b>只保存在你本机浏览器</b>（localStorage），每次请求随 HTTP 头发给本站服务，
-        <b>服务端不存储</b>。所以每个人都可以用<b>自己的</b>方舟与 ima 知识库，学自己的资料。
+        <b>服务端不存储</b>。所以每个人都可以用<b>自己的</b>大模型与 ima 知识库，学自己的资料。
         不填也能玩 —— 会自动进入 <b>DEMO 模式</b>。
       </p>
 
-      <h3>① 火山方舟（大模型 · 老师）<span class="req">必填才能用真模型</span></h3>
+      <h3>① 大模型接口（老师 · 任何 OpenAI 兼容服务）<span class="req">必填才能用真模型</span></h3>
       <label class="field"><span>API Key</span>
-        <input id="cfg-ark-key" type="password" autocomplete="off" placeholder="ark-xxxxxxxx-xxxx-…" /></label>
-      <label class="field"><span>接入点 / 模型 ID</span>
-        <input id="cfg-ark-model" autocomplete="off" placeholder="ep-20250101-xxxxx" /></label>
+        <input id="cfg-llm-key" type="password" autocomplete="off" placeholder="你的 API Key" /></label>
+      <label class="field"><span>模型 ID</span>
+        <input id="cfg-llm-model" autocomplete="off" placeholder="deepseek-chat" /></label>
       <label class="field"><span>Base URL（可留空）</span>
-        <input id="cfg-ark-base" autocomplete="off" placeholder="https://ark.cn-beijing.volces.com/api/v3" /></label>
+        <input id="cfg-llm-base" autocomplete="off" placeholder="https://api.deepseek.com" /></label>
+      <p class="modal-note">
+        不绑定任何一家供应商，只要接口是 <b>OpenAI 兼容</b>（<code>POST {baseUrl}/chat/completions</code> + Bearer 鉴权）就能用。
+        已实测：<b>DeepSeek</b> → <code>https://api.deepseek.com</code> + <code>deepseek-chat</code>；
+        <b>火山方舟</b> → 留空 Base URL（默认值）+ <code>ep-…</code> 接入点。
+      </p>
       <div class="test-row">
-        <button id="cfg-test-ark" class="ghost-btn">测试方舟连接</button>
-        <span id="cfg-ark-result" class="test-result"></span>
+        <button id="cfg-test-llm" class="ghost-btn">测试模型连接</button>
+        <span id="cfg-llm-result" class="test-result"></span>
       </div>
 
       <h3>② ima 知识库（你自己的教材 · 可选）</h3>

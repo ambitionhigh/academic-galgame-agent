@@ -10,14 +10,14 @@
 [![Trae Ready](https://img.shields.io/badge/Trae-Ready-6c5ce7.svg)](#在-trae-中使用)
 
 - 🧠 **AI Agent 项目**：标准的 Agent 结构（人设 / 工具 / 编排），可直接用 Trae 打开、改、开源。
-- 🇨🇳 **火山引擎原生**：模型后端走**火山方舟（Volcengine Ark）**的 OpenAI 兼容接口。
+- 🔌 **不绑定模型供应商**：模型后端走**标准 OpenAI 兼容接口**（`POST {baseUrl}/chat/completions` + Bearer 鉴权），DeepSeek、火山方舟、OpenAI……任何兼容服务都能接；火山方舟只是 **Base URL 留空时的默认值**。
 - 📦 **零依赖**：只用 Node 内置模块，`git clone` 即可运行，无 `npm install`。
 - 🎓 **不是聊天机器人**：有真实的学习闭环——提问 → 判定 → 熟练度 → 间隔复习 → BOSS 战。
 - 🎨 **自带 UI**：原生 HTML/CSS/JS 的 galgame 界面（立绘逐帧动画 / 属性面板 / 战斗浮层）。
 
 ![界面预览](./docs/screenshot.png)
 
-> 上图是**接上火山方舟真模型**后的实际界面：右上角显示当前模型接入点，左侧鲸鱼娘立绘逐帧动画，右侧是学科熟练度/任务链/近期判定（都由模型真实作答后写入），底部是老师抛出的苏格拉底式情境提问。
+> 上图是**接上真实大模型**（示例为火山方舟接入点）后的实际界面：右上角显示当前模型接入点，左侧鲸鱼娘立绘逐帧动画，右侧是学科熟练度/任务链/近期判定（都由模型真实作答后写入），底部是老师抛出的苏格拉底式情境提问。
 
 ---
 
@@ -76,9 +76,12 @@ python -m unittest discover -s tests -v    # 19 项自测
 ### 1. 准备
 
 - Node.js **≥ 18**（用到全局 `fetch`）
-- 一个**火山方舟** API Key：在 [火山方舟控制台](https://console.volcengine.com/ark) 创建 API Key，并创建一个**在线推理接入点**拿到 `ep-xxxxxxxx` 形式的接入点 ID
+- 一个**大模型 API Key**：只要服务提供 **OpenAI 兼容**接口就行，**不绑定任何供应商**。已实测两条路——
+  - **DeepSeek**（最省事）：用自己的 DeepSeek Key，模型填 `deepseek-chat`，Base URL 填 `https://api.deepseek.com`
+  - **火山方舟**：在 [火山方舟控制台](https://console.volcengine.com/ark) 创建 API Key，并创建一个**在线推理接入点**拿到 `ep-xxxxxxxx` 形式的接入点 ID；Base URL **留空即可**（这是默认值）
+  - 其它任何 OpenAI 兼容服务**理论可用**，本项目未逐一实测
 
-> 📖 **不知道这两个值怎么拿？** 看 [`docs/API-KEYS.md`](./docs/API-KEYS.md) —— 有控制台逐步操作、免费额度说明、报错对照表和安全规范。
+> 📖 **不知道这几个值怎么拿？** 看 [`docs/API-KEYS.md`](./docs/API-KEYS.md) —— 有控制台逐步操作（以火山方舟为例）、免费额度说明、报错对照表和安全规范。
 
 ### 2. 配置
 
@@ -91,18 +94,20 @@ cp .env.example .env
 编辑 `.env`（**这是唯一填写密钥的地方**，该文件已被 gitignore）：
 
 ```ini
-ARK_API_KEY=你的方舟 API Key
-ARK_MODEL=你的推理接入点 ID 或模型名
-# ARK_BASE_URL 默认即 https://ark.cn-beijing.volces.com/api/v3
+LLM_API_KEY=你的 API Key
+LLM_MODEL=你的模型名或接入点 ID
+# LLM_BASE_URL 留空 = 默认火山方舟（https://ark.cn-beijing.volces.com/api/v3）
+# 用别的服务就填它的地址，例如 https://api.deepseek.com
+# （早期版本用的 ARK_API_KEY / ARK_MODEL / ARK_BASE_URL 仍然兼容）
 ```
 
 ### 3. 自检
 
 ```bash
-npm run check:ark
+npm run check:llm      # 旧脚本名 check:ark 仍可用
 ```
 
-这一步会**直接调用一次方舟**，明确告诉你 Key / 接入点 / 网络哪一环有问题：
+这一步会**直接调用一次你配置的大模型接口**，明确告诉你 Key / 模型 ID / Base URL / 网络哪一环有问题：
 
 ```
 ✓ 调用成功！模型返回： "收到"
@@ -115,7 +120,7 @@ npm start          # 等同 node src/server/server.js
 # 打开 http://127.0.0.1:8787
 ```
 
-> **没有 API Key 也能跑**：未配置 `ARK_API_KEY` / `ARK_MODEL` 时自动进入 **DEMO 模式**——内置示例老师的苏格拉底提问，UI 与引擎（数值/战斗/存档）全部照常工作，方便先看效果或做 UI 开发。
+> **没有 API Key 也能跑**：未配置 `LLM_API_KEY` / `LLM_MODEL` 时自动进入 **DEMO 模式**——内置示例老师的苏格拉底提问，UI 与引擎（数值/战斗/存档）全部照常工作，方便先看效果或做 UI 开发。
 
 ### 5. 离线自测（可选）
 
@@ -131,7 +136,7 @@ npm run smoke      # 引擎 + 检索 + 会话的 12 项离线自测，不联网�
 
 ![设置面板](./docs/screenshot-settings.png)
 
-> 页面 → 右上角「⚙ 设置」→ 填自己的方舟 / ima 凭证；也能用 `http://<地址>/#settings` 直接打开。
+> 页面 → 右上角「⚙ 设置」→ 填自己的大模型 / ima 凭证；也能用 `http://<地址>/#settings` 直接打开。
 
 ### 怎么用
 
@@ -139,7 +144,7 @@ npm run smoke      # 引擎 + 检索 + 会话的 12 项离线自测，不联网�
 
 | 区块 | 你做什么 | 效果 |
 |---|---|---|
-| **① 火山方舟** | 填 API Key + 接入点 ID | 让「鲸鱼娘老师」由**你自己的**大模型驱动 |
+| **① 大模型接口** | 填 API Key + 模型 ID（火山方舟填 `ep-…` 接入点 ID，Base URL 可留空） | 让「鲸鱼娘老师」由**你自己的**大模型驱动（任何 OpenAI 兼容服务） |
 | **② ima 知识库** | 填 API Key + Client ID → 点**「拉取知识库列表」** | 列出你的知识库；每个旁边有 **「+ 添加为学科」** |
 | **③ 我的学科** | 从 ② 一键添加，或手动输入学科名 | **你的课程表 = 你的知识库** |
 | **④ 我的教材** | 拖拽或选择 `.md` / `.txt` / `.docx` | **连 ima 都不用** —— 老师直接读你的资料出题 |
@@ -188,7 +193,7 @@ npm run smoke      # 引擎 + 检索 + 会话的 12 项离线自测，不联网�
 ### 凭证去哪了？
 
 ```
-你的浏览器(localStorage) ──HTTP 头──▶ 本地/本站服务 ──▶ 火山方舟 / ima
+你的浏览器(localStorage) ──HTTP 头──▶ 本地/本站服务 ──▶ 大模型接口 / ima
                                           ↑
                                     只用于这一次请求，不落盘、不记录
 ```
@@ -208,7 +213,7 @@ npm run smoke      # 引擎 + 检索 + 会话的 12 项离线自测，不联网�
 
 ### 想自托管给自己用？
 
-在 `.env` 里配 `ARK_API_KEY` / `ARK_MODEL` 作为**缺省兜底** —— 此时访客不填也能用你的模型；但访客一填，就用**他自己的**覆盖。公开部署请**留空**。
+在 `.env` 里配 `LLM_API_KEY` / `LLM_MODEL`（必要时加 `LLM_BASE_URL`）作为**缺省兜底** —— 此时访客不填也能用你的模型；但访客一填，就用**他自己的**覆盖。公开部署请**留空**。
 
 ---
 
@@ -226,7 +231,7 @@ npm run smoke      # 引擎 + 检索 + 会话的 12 项离线自测，不联网�
 3. Render 会自动读取仓库里的 [`render.yaml`](./render.yaml)，点 **Deploy**
 4. 等 1~2 分钟，拿到形如 `https://academic-galgame-agent.onrender.com` 的公开地址
 
-无需填任何环境变量。若想让它用**真模型**（不建议公开部署时这么做，等于把你的 Key 给所有人用），在 Render 的环境变量里加 `ARK_API_KEY` / `ARK_MODEL`。
+无需填任何环境变量。若想让它用**真模型**（不建议公开部署时这么做，等于把你的 Key 给所有人用），在 Render 的环境变量里加 `LLM_API_KEY` / `LLM_MODEL`（非方舟服务再加 `LLM_BASE_URL`）。
 
 ### 方式二：Docker（任意容器平台）
 
@@ -325,7 +330,7 @@ node ~/.workbuddy/skills/academic-galgame/scripts/galgame.js panel --port 8790
 | | Trae 版（本仓库主体） | WorkBuddy 版（`workbuddy/`） |
 |---|---|---|
 | 形态 | 完整项目：Node 服务 + Web UI | 两个技能包 |
-| 模型来源 | 用户自带火山方舟 Key | **WorkBuddy 自身模型/积分**（默认），或 `llm config` 填自备 OpenAI 兼容 API |
+| 模型来源 | 用户自带的大模型接口 Key（任何 OpenAI 兼容服务；Base URL 留空则默认火山方舟） | **WorkBuddy 自身模型/积分**（默认），或 `llm config` 填自备 OpenAI 兼容 API |
 | 资料依据 | 上传教材 + ima 知识库 + 内置 `corpus/` | **ima 知识库（必填）** + 本地教材库（可选），**无内置语料** |
 | 交互 | 浏览器里的 galgame 界面 | **对话 + 本地实时动画面板** |
 | 状态 | 服务端会话内存 | CLI 写 `~/.workbuddy/academic-galgame/save.json` |
@@ -413,7 +418,7 @@ academic-galgame-agent/
 │   │   └── session.js            #   会话：把引擎能力暴露成工具
 │   ├── agent/                    # LLM 编排层
 │   │   ├── persona.md            #   鲸鱼娘人设（系统提示）
-│   │   ├── ark.js                #   火山方舟客户端（OpenAI 兼容）
+│   │   ├── llm.js                #   大模型客户端（任何 OpenAI 兼容接口）
 │   │   ├── retriever.js          #   检索适配（本地语料 / 可选 ima）
 │   │   └── gm.js                 #   GM：工具定义 + 调用循环 + demo 兜底
 │   ├── server/                   # 零依赖 HTTP 服务
@@ -433,7 +438,7 @@ academic-galgame-agent/
 │   └── socratic-questioning-framework.md  # 苏格拉底框架原文备份
 ├── scripts/
 │   ├── smoke.js                  #   12 项离线自测
-│   └── check-ark.js              #   火山方舟配置体检
+│   └── check-llm.js              #   大模型接口配置体检
 ├── .env.example                  #   环境变量模板（值为空）
 └── package.json                  # 零依赖
 ```
@@ -455,7 +460,7 @@ academic-galgame-agent/
                │
 ┌──────────────▼────────────────┐
 │ agent/  GM 编排                │  人设 + 工具调用循环
-│   ├─ ark.js   → 火山方舟        │
+│   ├─ llm.js   → 大模型接口      │
 │   └─ retriever.js → 真实资料    │
 └──────────────┬────────────────┘
                │ 只调 session 的公开方法
@@ -469,7 +474,7 @@ academic-galgame-agent/
 ```
 玩家输入 → server /api/chat → gm.say()
   → 组装 system(人设 + 实时状态) + 历史 + 输入
-  → 调火山方舟（带 tools）
+  → 调大模型接口（带 tools）
   → 模型请求 ag_retrieve / ag_apply / ag_battle_apply …
   → gm 执行工具（落盘存档）
   → 把工具结果回灌模型，直到产出最终回复
@@ -484,13 +489,13 @@ academic-galgame-agent/
 
 | 方法 | 路径 | 说明 |
 |---|---|---|
-| `GET` | `/api/health` | 运行模式、是否已配置方舟 / ima、当前模型 |
+| `GET` | `/api/health` | 运行模式、是否已配置大模型接口 / ima（`llmConfigured`）、当前模型 |
 | `GET` | `/api/state` | 完整游戏状态（UI 与调试用） |
 | `POST` | `/api/chat` | 对话一次，body：`{ "message": "..." }`；返回 `{ reply, events, state, demo }` |
 | `POST` | `/api/reset` | 重置进度 |
 | `POST` | `/api/subjects` | 新增学科，body：`{ "name": "博弈论大学习" }` |
 | `DELETE` | `/api/subjects?name=…` | 删除学科（至少保留一个） |
-| `POST` | `/api/test` | 连通性测试，body：`{ "kind": "ark" \| "ima" }` |
+| `POST` | `/api/test` | 连通性测试，body：`{ "kind": "llm" \| "ima" }`（旧值 `"ark"` 仍接受） |
 | `POST` | `/api/ima/kbs` | 列出该凭证可用的 ima 知识库（名称 → ID） |
 | `GET` | `/api/corpus` | 查看本会话已上传的教材列表（含 id / 学科标签 / 字数） |
 | `POST` | `/api/corpus` | 上传/追加教材，body：`{ "files": [{ "name": "...", "text": "...", "subject": "博弈论" }], "replace": false }`；同名覆盖 |
@@ -501,7 +506,7 @@ academic-galgame-agent/
 
 | 头 | 含义 |
 |---|---|
-| `x-ark-key` / `x-ark-model` / `x-ark-base` | 火山方舟凭证 |
+| `x-llm-key` / `x-llm-model` / `x-llm-base` | 大模型接口凭证（旧头 `x-ark-key` / `x-ark-model` / `x-ark-base` 仍兼容） |
 | `x-ima-key` / `x-ima-client-id` | ima 凭证 |
 | `x-ima-kb-map` | 学科→知识库ID 映射（JSON，percent-encoded） |
 
@@ -511,7 +516,8 @@ academic-galgame-agent/
 curl -s http://127.0.0.1:8787/api/state
 curl -s -X POST http://127.0.0.1:8787/api/chat \
   -H 'content-type: application/json' \
-  -H 'x-ark-key: ark-xxxx' -H 'x-ark-model: ep-xxxx' \
+  -H 'x-llm-key: sk-xxxx' -H 'x-llm-model: deepseek-chat' \
+  -H 'x-llm-base: https://api.deepseek.com' \
   -d '{"message":"开始教学，我想学纳什均衡"}'
 ```
 
@@ -521,7 +527,7 @@ curl -s -X POST http://127.0.0.1:8787/api/chat \
 
 ### 首选：页面里填（BYOK，推荐）
 
-打开页面 → **「⚙ 设置」** → 填自己的方舟 / ima 凭证。这些值只存在你浏览器里，**不经过服务端存储**。见上文 [🔑 自带密钥](#-自带密钥byok--每个人学自己的资料)。
+打开页面 → **「⚙ 设置」** → 填自己的大模型 / ima 凭证。这些值只存在你浏览器里，**不经过服务端存储**。见上文 [🔑 自带密钥](#-自带密钥byok--每个人学自己的资料)。
 
 ### 备选：环境变量（自托管兜底）
 
@@ -529,13 +535,15 @@ curl -s -X POST http://127.0.0.1:8787/api/chat \
 
 | 变量 | 必填 | 默认 | 说明 |
 |---|---|---|---|
-| `ARK_API_KEY` | | — | 火山方舟 API Key（公开部署请留空） |
-| `ARK_MODEL` | | — | 推理接入点 ID 或模型名（公开部署请留空） |
-| `ARK_BASE_URL` | | `https://ark.cn-beijing.volces.com/api/v3` | 方舟 OpenAI 兼容地址 |
+| `LLM_API_KEY` | | — | 大模型接口 API Key（公开部署请留空） |
+| `LLM_MODEL` | | — | 模型名或接入点 ID，如 `deepseek-chat` / `ep-xxxxxxxx`（公开部署请留空） |
+| `LLM_BASE_URL` | | `https://ark.cn-beijing.volces.com/api/v3` | **留空即用这个默认值（火山方舟）**；填任何 OpenAI 兼容地址都行，如 `https://api.deepseek.com` |
 | `PORT` / `HOST` | | `8787` / `127.0.0.1` | 服务监听（容器部署设 `HOST=0.0.0.0`） |
 | `MAX_SESSIONS` | | `500` | 内存中保留的最大访客会话数 |
 | `GALGAME_CORPUS` | | `./corpus` | 本地教材语料目录（ima 不可用时的依据） |
 | `IMA_API_KEY` / `IMA_CLIENT_ID` / `IMA_KB_MAP` | | — | 可选：ima 知识库作为服务端兜底 |
+
+> 早期版本用的 `ARK_API_KEY` / `ARK_MODEL` / `ARK_BASE_URL` 仍被识别（别名），新配置请用 `LLM_*`。
 
 ### 🔒 密钥安全
 
@@ -544,16 +552,16 @@ curl -s -X POST http://127.0.0.1:8787/api/chat \
 | 措施 | 实现 |
 |---|---|
 | **BYOK：服务端不存用户凭证** | 页面填的凭证只存浏览器 localStorage，随请求头传入，用完即弃 |
-| 服务端凭证只在内存/环境变量 | `src/agent/ark.js` / `src/agent/retriever.js` 读 `process.env.*`，无任何字面量 Key |
+| 服务端凭证只在内存/环境变量 | `src/agent/llm.js` / `src/agent/retriever.js` 读 `process.env.*`，无任何字面量 Key |
 | `.env` 不进仓库 | `.gitignore` 已忽略 `.env` |
 | 只提供空模板 | 仓库里只有 `.env.example`（值为空） |
-| 公开部署可零凭证 | 不放 `ARK_*` / `IMA_*` → 访客各用各的，站点主不承担额度 |
+| 公开部署可零凭证 | 不放 `LLM_*`（旧名 `ARK_*`）/ `IMA_*` → 访客各用各的，站点主不承担额度 |
 
 你可以自己验证：
 
 ```bash
 git check-ignore -v .env                    # 应输出 .gitignore 命中
-git log -p --all | Select-String "ark-"     # 应无命中（历史里也没有）
+git log -p --all | Select-String "ark-","sk-" -SimpleMatch     # 应无命中（历史里也没有）
 Select-String -Path src\**\*.js -Pattern "ark-","sk-" -SimpleMatch   # 源码无字面量密钥
 ```
 
@@ -564,13 +572,14 @@ Select-String -Path src\**\*.js -Pattern "ark-","sk-" -SimpleMatch   # 源码无
 ## 常见问题
 
 **Q：必须要有火山方舟账号吗？**
-运行不是必须的（DEMO 模式可用），但要体验真正的 AI 教学需要——教学与出题由方舟上的模型驱动。
+不需要。项目打的是**标准 OpenAI 兼容接口**，**不绑定任何供应商** —— DeepSeek、OpenAI、本地推理服务等任何兼容服务都能接，火山方舟只是 **Base URL 留空时的默认值**。
+运行本身也不是必须的（不填任何 Key 就走 DEMO 模式），但要体验真正的 AI 教学，需要一个可用的模型接口 —— 教学与出题由你配置的模型驱动。
 
 **Q：为什么零依赖？**
 降低上手与审计成本：`git clone` 就能跑，也方便你在 Trae 里让 AI 直接读懂全部代码。
 
 **Q：怎么换模型？**
-改 `.env` 里的 `ARK_MODEL` 即可（方舟同时提供多种模型与接入点）。
+改 `.env` 里的 `LLM_MODEL` 即可；想换供应商，再把 `LLM_BASE_URL` 一起改（留空 = 默认火山方舟，方舟自身也同时提供多种模型与接入点）。
 
 **Q：老师怎么知道该教什么？**
 `corpus/` 里放你的教材（`.md` / `.txt`），老师通过 `ag_retrieve` 检索真实内容出题，不会凭空编造。想接你自己的知识库，配置 `IMA_*` 即可。
@@ -585,6 +594,6 @@ Select-String -Path src\**\*.js -Pattern "ark-","sk-" -SimpleMatch   # 源码无
 - 本项目以 **MIT** 协议开源，见 [LICENSE](./LICENSE)。
 - **苏格拉底式提问框架** 迁移自 [Imbad0202/academic-research-skills](https://github.com/Imbad0202/academic-research-skills) 的 `deep-research/references/socratic_questioning_framework.md`（原文备份保留在 `docs/`）。
 - **鲸鱼娘立绘** 来自开源 whale-girl 素材（画师 **ZipZipPipe**，BSD/开源许可），已随项目附带。
-- 模型服务由 **火山引擎 · 火山方舟** 提供。
+- **模型服务**：本项目**不绑定任何供应商** —— 任何 OpenAI 兼容接口均可接入。已实测 **DeepSeek**（`https://api.deepseek.com` + `deepseek-chat`）与 **火山引擎 · 火山方舟**（Base URL 留空时的默认值 + `ep-…` 接入点）；其它兼容服务理论可用，未逐一实测。
 
 欢迎 PR：新学科、新题型、更好的提问策略、UI 主题……

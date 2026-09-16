@@ -1,14 +1,14 @@
 # -*- coding: utf-8 -*-
 """GM（游戏主持 / 老师）编排层。
 
-负责：装配系统提示（人设 + 实时状态）-> 调火山方舟 -> 执行工具调用 -> 直到模型给出最终回复。
-未配置方舟时进入 demo 模式，保证 UI 与引擎依旧可玩。
+负责：装配系统提示（人设 + 实时状态）-> 调大模型 -> 执行工具调用 -> 直到模型给出最终回复。
+未配置模型时进入 demo 模式，保证 UI 与引擎依旧可玩。
 """
 
 import json
 import os
 
-from .ark import ark_chat, is_ark_configured
+from .llm import llm_chat, is_llm_configured
 from .retriever import retrieve
 
 PERSONA_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'persona.md')
@@ -144,7 +144,7 @@ def render_state(state):
     ])
 
 
-# demo 模式的示例提问（未配置方舟时使用，保证 UI 可玩）
+# demo 模式的示例提问（未配置大模型时使用，保证 UI 可玩）
 DEMO_PROMPTS = [
     '先别急着要结论——你觉得「需求减少，价格必然下跌」这句话里，藏着一个什么前提假设？如果那个假设不成立，结论还站得住吗？',
     '你刚才用的是「相关」还是「因果」？举个反例试试：有没有两个变量一起变化、却没有因果关系的例子？',
@@ -203,7 +203,7 @@ class GameMaster(object):
         events = []
 
         # ── demo 模式：既没有请求凭证、服务端也没配凭证时，用示例提问驱动界面 ──
-        if not is_ark_configured(creds):
+        if not is_llm_configured(creds):
             reply = DEMO_PROMPTS[self.demo_index % len(DEMO_PROMPTS)]
             self.demo_index += 1
             # 轮换学科结算，让 UI 的熟练度条也能看到变化
@@ -215,7 +215,7 @@ class GameMaster(object):
             state = self.session.teaching(args)
             return {'reply': reply, 'events': events, 'state': state, 'demo': True}
 
-        # ── 真实模式：火山方舟 + 工具调用循环 ──
+        # ── 真实模式：大模型 + 工具调用循环 ──
         messages = [{'role': 'system', 'content': self.build_system_prompt()}]
         messages.extend(self.history)
         if text:
@@ -225,7 +225,7 @@ class GameMaster(object):
         for round_index in range(MAX_TOOL_ROUNDS):
             # 最后一轮强制「只输出文字」，避免模型无限调工具、始终不给回复
             is_last_round = (round_index == MAX_TOOL_ROUNDS - 1)
-            out = ark_chat(messages, {
+            out = llm_chat(messages, {
                 'tools': TOOLS,
                 'toolChoice': 'none' if is_last_round else 'auto',
                 'temperature': 0.8,

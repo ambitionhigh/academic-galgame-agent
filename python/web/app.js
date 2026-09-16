@@ -1,8 +1,9 @@
 // 学术galgame · 前端逻辑（原生 ESM，无框架）
 // 只通过 /api/* 与后端通信；立绘是 256×256 的水平精灵图，用 JS 逐帧播放。
 //
-// 【BYOK 自带密钥】用户填写的方舟 / ima 凭证只保存在本机 localStorage，
+// 【BYOK 自带密钥】用户填写的大模型 / ima 凭证只保存在本机 localStorage，
 // 每次请求随 HTTP 头发送；服务端不存储。→ 每个人用自己的 Key 学自己的资料。
+// 大模型一端不绑定供应商：任何 OpenAI 兼容接口（DeepSeek / 火山方舟 / …）都能用。
 //
 // 【教材】上传的 .md/.txt/.docx/.pdf 在浏览器端提取为纯文本，存进会话内存；
 // 同时镜像到 IndexedDB，刷新或重开浏览器会自动恢复，不用重新上传。
@@ -28,9 +29,9 @@ const el = {
   battleSubject: $('battle-subject'), battleDifficulty: $('battle-difficulty'),
   battleStreak: $('battle-streak'), retreat: $('retreat-btn'),
   modal: $('settings'), modalClose: $('settings-close'),
-  cfgArkKey: $('cfg-ark-key'), cfgArkModel: $('cfg-ark-model'), cfgArkBase: $('cfg-ark-base'),
+  cfgLlmKey: $('cfg-llm-key'), cfgLlmModel: $('cfg-llm-model'), cfgLlmBase: $('cfg-llm-base'),
   cfgImaKey: $('cfg-ima-key'), cfgImaClientId: $('cfg-ima-client-id'), cfgImaKbMap: $('cfg-ima-kb-map'),
-  cfgTestArk: $('cfg-test-ark'), cfgArkResult: $('cfg-ark-result'),
+  cfgTestLlm: $('cfg-test-llm'), cfgLlmResult: $('cfg-llm-result'),
   cfgTestIma: $('cfg-test-ima'), cfgImaResult: $('cfg-ima-result'),
   cfgListKb: $('cfg-list-kb'), cfgKbRows: $('cfg-kb-rows'),
   cfgNewSubject: $('cfg-new-subject'), cfgAddSubject: $('cfg-add-subject'),
@@ -49,7 +50,14 @@ let cachedKbs = []        // 拉取到的 ima 知识库 [{id,name}]
 
 /* ══════════ 凭证管理（BYOK）══════════ */
 function loadCreds() {
-  try { return JSON.parse(localStorage.getItem(CRED_KEY) || '{}') } catch { return {} }
+  try {
+    const raw = JSON.parse(localStorage.getItem(CRED_KEY) || '{}')
+    // 兼容早期版本：字段名 ark* 迁移为 llm*（旧数据不丢）
+    if (!raw.llmKey && raw.arkKey) raw.llmKey = raw.arkKey
+    if (!raw.llmModel && raw.arkModel) raw.llmModel = raw.arkModel
+    if (!raw.llmBase && raw.arkBase) raw.llmBase = raw.arkBase
+    return raw
+  } catch { return {} }
 }
 function persistCreds(c) { localStorage.setItem(CRED_KEY, JSON.stringify(c)) }
 function clearCreds() { localStorage.removeItem(CRED_KEY) }
@@ -60,9 +68,9 @@ function clearCreds() { localStorage.removeItem(CRED_KEY) }
 function credHeaders() {
   const c = loadCreds()
   const h = {}
-  if (c.arkKey) h['x-ark-key'] = c.arkKey
-  if (c.arkModel) h['x-ark-model'] = c.arkModel
-  if (c.arkBase) h['x-ark-base'] = c.arkBase
+  if (c.llmKey) h['x-llm-key'] = c.llmKey
+  if (c.llmModel) h['x-llm-model'] = c.llmModel
+  if (c.llmBase) h['x-llm-base'] = c.llmBase
   if (c.imaKey) h['x-ima-key'] = c.imaKey
   if (c.imaClientId) h['x-ima-client-id'] = c.imaClientId
   if (c.imaKbMap) h['x-ima-kb-map'] = encodeURIComponent(c.imaKbMap)
@@ -71,9 +79,9 @@ function credHeaders() {
 
 function readForm() {
   return {
-    arkKey: el.cfgArkKey.value.trim(),
-    arkModel: el.cfgArkModel.value.trim(),
-    arkBase: el.cfgArkBase.value.trim(),
+    llmKey: el.cfgLlmKey.value.trim(),
+    llmModel: el.cfgLlmModel.value.trim(),
+    llmBase: el.cfgLlmBase.value.trim(),
     imaKey: el.cfgImaKey.value.trim(),
     imaClientId: el.cfgImaClientId.value.trim(),
     imaKbMap: el.cfgImaKbMap.value.trim(),
@@ -81,9 +89,9 @@ function readForm() {
 }
 
 function fillForm(c) {
-  el.cfgArkKey.value = c.arkKey || ''
-  el.cfgArkModel.value = c.arkModel || ''
-  el.cfgArkBase.value = c.arkBase || ''
+  el.cfgLlmKey.value = c.llmKey || ''
+  el.cfgLlmModel.value = c.llmModel || ''
+  el.cfgLlmBase.value = c.llmBase || ''
   el.cfgImaKey.value = c.imaKey || ''
   el.cfgImaClientId.value = c.imaClientId || ''
   el.cfgImaKbMap.value = c.imaKbMap || ''
@@ -196,8 +204,8 @@ async function api(path, options = {}) {
 }
 
 function setModeBadge(h) {
-  if (h.arkConfigured) {
-    el.mode.textContent = `方舟 · ${h.model}${h.imaConfigured ? ' · ima' : ''}`
+  if (h.llmConfigured) {
+    el.mode.textContent = `${h.model}${h.imaConfigured ? ' · ima' : ''}`
     el.mode.classList.remove('demo')
   } else {
     el.mode.textContent = 'DEMO 模式 · 点「⚙ 设置」填自己的 Key'
@@ -241,7 +249,7 @@ async function sendMessage(text) {
 /* ── 设置面板 ── */
 async function openSettings() {
   fillForm(loadCreds())
-  el.cfgArkResult.textContent = ''
+  el.cfgLlmResult.textContent = ''
   el.cfgImaResult.textContent = ''
   el.cfgFileResult.textContent = ''
   cachedKbs = []
@@ -259,18 +267,18 @@ function showResult(node, state, msg) {
   node.textContent = msg
 }
 
-async function testArk() {
+async function testLlm() {
   const c = readForm()
-  if (!c.arkKey || !c.arkModel) return showResult(el.cfgArkResult, 'err', '请先填写 API Key 与接入点 ID')
-  showResult(el.cfgArkResult, 'pending', '测试中…（约 5~30 秒）')
+  if (!c.llmKey || !c.llmModel) return showResult(el.cfgLlmResult, 'err', '请先填写 API Key 与模型 ID')
+  showResult(el.cfgLlmResult, 'pending', '测试中…（约 5~30 秒）')
   // 用表单里的值（尚未保存）测试
-  const headers = { 'content-type': 'application/json', 'x-ark-key': c.arkKey, 'x-ark-model': c.arkModel }
-  if (c.arkBase) headers['x-ark-base'] = c.arkBase
+  const headers = { 'content-type': 'application/json', 'x-llm-key': c.llmKey, 'x-llm-model': c.llmModel }
+  if (c.llmBase) headers['x-llm-base'] = c.llmBase
   try {
-    const r = await fetch('/api/test', { method: 'POST', headers, body: JSON.stringify({ kind: 'ark' }) }).then((x) => x.json())
-    if (r.ok) showResult(el.cfgArkResult, 'ok', `✓ 连接成功，模型返回：${r.reply}`)
-    else showResult(el.cfgArkResult, 'err', `✗ ${r.error || '失败'}`)
-  } catch (e) { showResult(el.cfgArkResult, 'err', `✗ ${e.message}`) }
+    const r = await fetch('/api/test', { method: 'POST', headers, body: JSON.stringify({ kind: 'llm' }) }).then((x) => x.json())
+    if (r.ok) showResult(el.cfgLlmResult, 'ok', `✓ 连接成功，模型返回：${r.reply}`)
+    else showResult(el.cfgLlmResult, 'err', `✗ ${r.error || '失败'}`)
+  } catch (e) { showResult(el.cfgLlmResult, 'err', `✗ ${e.message}`) }
 }
 
 async function testIma() {
@@ -599,12 +607,12 @@ el.cfgSave.addEventListener('click', async () => {
 el.cfgClear.addEventListener('click', async () => {
   clearCreds()
   fillForm({})
-  showResult(el.cfgArkResult, '', '')
+  showResult(el.cfgLlmResult, '', '')
   showResult(el.cfgImaResult, '', '')
   await refreshHealth()
   pushMessage('系统', '已清空本机凭证，回到 DEMO 模式。', 'sys')
 })
-el.cfgTestArk.addEventListener('click', testArk)
+el.cfgTestLlm.addEventListener('click', testLlm)
 el.cfgTestIma.addEventListener('click', testIma)
 el.cfgListKb.addEventListener('click', loadKbList)
 el.cfgAddSubject.addEventListener('click', () => addSubject(el.cfgNewSubject.value))
@@ -658,8 +666,8 @@ async function boot() {
 
   if (!wantSettings) {
     const c = loadCreds()
-    if (!c.arkKey) {
-      pushMessage('系统', '尚未配置大模型：点右上角「⚙ 设置」填入你自己的火山方舟 Key，即可用真模型教学；不填也能在 DEMO 模式试玩。', 'sys')
+    if (!c.llmKey) {
+      pushMessage('系统', '尚未配置大模型：点右上角「⚙ 设置」填入你自己的大模型 API Key（任何 OpenAI 兼容服务都可以），即可用真模型教学；不填也能在 DEMO 模式试玩。', 'sys')
     }
     pushMessage('系统', '鲸鱼娘正在准备今天的课程……', 'sys')
     await sendMessage('')

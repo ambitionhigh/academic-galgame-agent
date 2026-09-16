@@ -1,7 +1,7 @@
 # 部署平台一键部署蓝图（Render）
 # 用法：Render → New → Blueprint → 选择本仓库 → 自动读取本文件 → Deploy
 #
-# ⚠️ 不需要配置任何 API Key：未设置 ARK_API_KEY 时自动进入 DEMO 模式，
+# ⚠️ 不需要配置任何 API Key：未设置 LLM_API_KEY 时自动进入 DEMO 模式，
 #    UI / 引擎 / 数值 / 战斗 / 存档全部可用 —— 正好作为「可运行的在线体验」。
 services:
   - type: web
@@ -18,7 +18,7 @@ services:
       - key: NODE_VERSION
         value: "20"
       # 若想让它用真模型（不建议公开部署时填，等于把你的 Key 给所有人用）：
-      # - key: ARK_API_KEY
+      # - key: LLM_API_KEY
       #   sync: false
-      # - key: ARK_MODEL
+      # - key: LLM_MODEL
       #   sync: false

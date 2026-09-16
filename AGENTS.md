@@ -10,11 +10,11 @@
 ## 运行方式
 
 ```bash
-cp .env.example .env      # 填入火山方舟 ARK_API_KEY 与 ARK_MODEL
+cp .env.example .env      # 填入 LLM_API_KEY 与 LLM_MODEL（任何 OpenAI 兼容接口都行）
 node src/server/server.js # 打开 http://localhost:8787
 ```
 
-没有 `ARK_API_KEY` 时自动进入 **demo 模式**（内置示例老师的苏格拉底提问，UI 与引擎照常可用）。
+没有 `LLM_API_KEY` 时自动进入 **demo 模式**（内置示例老师的苏格拉底提问，UI 与引擎照常可用）。
 
 ## 你在这个项目里的角色
 
@@ -39,7 +39,7 @@ node src/server/server.js # 打开 http://localhost:8787
 .trae/rules/      项目规则（Trae 自动加载）
 .trae/skills/     项目技能（含 socratic-questioning）
 src/engine/       游戏逻辑：状态机 / 战斗 / 存档
-src/agent/        人设、火山方舟 Ark 客户端、GM 工具编排、检索适配
+src/agent/        人设、大模型接口客户端（llm.js，任何 OpenAI 兼容服务）、GM 工具编排、检索适配
 src/server/       零依赖 HTTP 服务 + 静态 UI
 src/web/          基础 UI 前端（原生 HTML/CSS/JS + 鲸鱼娘立绘）
 corpus/           本地教材语料（检索依据，可选接 ima 知识库）

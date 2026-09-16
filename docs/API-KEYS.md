@@ -15,14 +15,14 @@
 
 打开应用页面 → 右上角 **「⚙ 设置」**：
 
-1. **① 火山方舟**：填 API Key + 接入点 ID → 点「测试方舟连接」→ 通过后保存
+1. **① 大模型接口**：填 API Key + 模型 ID（火山方舟填 `ep-…` 接入点 ID、Base URL 留空即可；DeepSeek 填 `deepseek-chat` + `https://api.deepseek.com`）→ 点「测试模型连接」→ 通过后保存
 2. **② ima 知识库**（可选）：填 API Key + Client ID + 学科→知识库ID 映射 → 点「测试 ima 连接」
 3. 点 **「保存到本机浏览器」**
 
 ### 凭证去哪了
 
 ```
-你的浏览器(localStorage) ──HTTP头──▶ 本站服务 ──▶ 火山方舟 / ima
+你的浏览器(localStorage) ──HTTP头──▶ 本站服务 ──▶ 大模型接口 / ima
                                         ↑
                                   仅用于当次请求，不落盘、不记录
 ```
@@ -76,24 +76,35 @@
 ```powershell
 Copy-Item .env.example .env
 notepad .env          # 填入下面的值
-npm run check:ark     # 自检：确认 Key + 接入点 + 网络都通
+npm run check:llm     # 自检：确认 Key + 模型 ID + Base URL + 网络都通（旧脚本名 check:ark 仍可用）
 npm start             # 通过后启动
 ```
 
 ---
 
-## 一、火山方舟（Ark）—— 必需
+## 一、大模型接口 —— 想用真模型就必须配
 
-模型后端，没有它也能跑，但会进入 **DEMO 模式**（只有内置示例提问，不是真模型）。
+项目打的是**标准 OpenAI 兼容接口**（`POST {baseUrl}/chat/completions` + `Bearer` 鉴权），**不绑定任何供应商**：
+DeepSeek、火山方舟、OpenAI、本地推理服务……只要接口兼容就能接。不配也能跑，但会进入 **DEMO 模式**（只有内置示例提问，不是真模型）。
 
-### 需要拿到两个值
+已实测两条路：
+
+| 服务 | Base URL | 模型 ID |
+|---|---|---|
+| **DeepSeek** | `https://api.deepseek.com` | `deepseek-chat`（或其它 DeepSeek 模型名） |
+| **火山方舟**（默认值） | 留空即 `https://ark.cn-beijing.volces.com/api/v3` | `ep-…` 开头的推理接入点 ID |
+
+> 其它 OpenAI 兼容服务**理论可用**（接口形状相同），本项目未逐一实测。
+
+### 需要拿到三个值（第三个可留空）
 
 | 变量 | 是什么 | 从哪拿 |
 |---|---|---|
-| `ARK_API_KEY` | 你的身份凭证 | 控制台 → **API Key 管理** |
-| `ARK_MODEL` | 调哪个模型（接入点 ID） | 控制台 → **在线推理** → 创建接入点 |
+| `LLM_API_KEY` | 你的身份凭证 | 你选的服务方的控制台（DeepSeek / 火山方舟 …） |
+| `LLM_MODEL` | 调哪个模型 | 服务方的模型名（如 `deepseek-chat`）；火山方舟填**接入点 ID**（`ep-…`） |
+| `LLM_BASE_URL` | 接口地址 | 服务方给的地址；**留空 = 默认火山方舟** |
 
-### 步骤
+### 步骤（以火山方舟为例；用 DeepSeek 则只需在建 Key 后填 `LLM_MODEL=deepseek-chat` + `LLM_BASE_URL=https://api.deepseek.com`）
 
 **1. 前置条件**
 - 火山引擎账号（手机号注册）
@@ -106,7 +117,7 @@ npm start             # 通过后启动
 左侧 **「API Key 管理」** → **创建 API Key** → 起个名字 → **立刻复制**。
 > ⚠️ 很多平台只在创建时完整显示一次。建议一个用途一个 Key，泄露时好单独吊销。
 
-**4. 创建推理接入点 → 拿到 `ARK_MODEL`**
+**4. 创建推理接入点 → 拿到 `LLM_MODEL`**
 左侧 **「在线推理」** → **创建推理接入点**：
 - 名称随便填（如 `galgame-teacher`）
 - 模型：从下拉里选（豆包 Doubao 系列通常最常用、最划算）
@@ -116,18 +127,20 @@ npm start             # 通过后启动
 创建完成后列表里会出现 **`ep-` 开头的接入点 ID**，复制它。
 > 也可以直接填模型 ID（部分模型支持），但**推荐用接入点 ID**，绑定明确、行为稳定。
 
-**5. 填入 `.env`**
+**5. 填入 `.env`**（下例为火山方舟；DeepSeek 用 `sk-…` + `deepseek-chat` + `https://api.deepseek.com`）
 
 ```ini
-ARK_API_KEY=ark-xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx-xxxxx
-ARK_MODEL=ep-20250101-xxxxx
-ARK_BASE_URL=https://ark.cn-beijing.volces.com/api/v3
+LLM_API_KEY=ark-xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx-xxxxx
+LLM_MODEL=ep-20250101-xxxxx
+LLM_BASE_URL=                                  # 留空即默认方舟；也可显式写 https://ark.cn-beijing.volces.com/api/v3
 ```
+
+> 早期版本用的 `ARK_API_KEY` / `ARK_MODEL` / `ARK_BASE_URL` 仍然被识别，新配置请用 `LLM_*`。
 
 **6. 自检**
 
 ```powershell
-npm run check:ark
+npm run check:llm
 ```
 
 成功会打印：
@@ -137,7 +150,7 @@ npm run check:ark
 
 ### 免费额度与计费
 
-左侧 **「免费推理额度」** 页面可查看账号的赠送额度（以页面实际显示为准）。计费按**输入 + 输出的 token** 数，用多少算多少；本项目单次对话在几千 token 量级。
+（火山方舟）左侧 **「免费推理额度」** 页面可查看账号的赠送额度（以页面实际显示为准）。各家计费方式不同，通常按**输入 + 输出的 token** 数计费，用多少算多少；本项目单次对话在几千 token 量级。
 
 ---
 
@@ -161,16 +174,16 @@ IMA_KB_MAP={"博弈论":"xxxx","社会科学":"yyyy"}
 
 ## 三、报错对照表
 
-`npm run check:ark` 的报错含义：
+`npm run check:llm` 的报错含义：
 
 | 报错关键字 | 真实原因 | 怎么修 |
 |---|---|---|
 | `401` / `AuthenticationError` / `invalid api key` | Key 错、没复制全，或 `.env` 没被读到 | 重新复制 Key；确认 `.env` 在**项目根目录**且文件名就是 `.env` |
-| `404` / `model not found` / `InvalidEndpoint` | `ARK_MODEL` 写错，或模型/接入点未开通 | 核对 `ep-` 后面的字符；去「开通管理」开通模型 |
+| `404` / `model not found` / `InvalidEndpoint` | `LLM_MODEL` 写错，或模型/接入点未开通 | 核对模型名；火山方舟则核对 `ep-` 后面的字符，并去「开通管理」开通模型 |
 | `403` / `AccessDenied` | 账号未实名，或该模型/服务未开通 | 完成实名认证；开通对应模型 |
 | `429` / `RateLimit` / `quota` | 触发限流或额度用尽 | 稍后重试；或用尽后充值 |
-| `ECONNRESET` / `timeout` / `fetch failed` | 网络或代理问题 | 确认能访问 `ark.cn-beijing.volces.com` |
-| `ARK_NOT_CONFIGURED` | `.env` 根本没被读到 | 确认文件在项目根目录、名为 `.env`，且两个值都不为空 |
+| `ECONNRESET` / `timeout` / `fetch failed` | 网络或代理问题 | 确认能访问你填的 Base URL（默认方舟为 `ark.cn-beijing.volces.com`） |
+| `LLM_NOT_CONFIGURED` | `.env` 根本没被读到 | 确认文件在项目根目录、名为 `.env`，且 `LLM_API_KEY` 与 `LLM_MODEL` 都不为空 |
 
 ---
 
@@ -180,7 +193,7 @@ IMA_KB_MAP={"博弈论":"xxxx","社会科学":"yyyy"}
 
 | 措施 | 实现 |
 |---|---|
-| 密钥只从环境变量读 | `src/agent/ark.js` 用 `process.env.ARK_API_KEY`，**代码里没有任何 Key** |
+| 密钥只从环境变量读 | `src/agent/llm.js` 用 `process.env.LLM_API_KEY`（旧名 `ARK_API_KEY` 也认），**代码里没有任何 Key** |
 | `.env` 不进仓库 | `.gitignore` 第 5 行包含 `.env` |
 | 提供模板而非真值 | 仓库里只有 `.env.example`（值为空） |
 | 存档与语料也不进仓库 | `.gitignore` 忽略 `data/` 与 `*.save.json` |
@@ -198,5 +211,5 @@ IMA_KB_MAP={"博弈论":"xxxx","社会科学":"yyyy"}
 ```powershell
 git check-ignore -v .env          # 应输出「.gitignore:5:.env  .env」
 git status --short                # 应没有 .env
-git log -p --all | Select-String "ark-"   # 应无命中（历史里也没有）
+git log -p --all | Select-String "ark-","sk-" -SimpleMatch   # 应无命中（历史里也没有）
 ```

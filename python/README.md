@@ -40,7 +40,7 @@ academic-galgame-py/
 │   └── session.py           #   会话：把引擎能力暴露成一组方法
 ├── agent/                   # LLM 编排层
 │   ├── persona.md           #   鲸鱼娘人设（系统提示，从 Node 版原样复制）
-│   ├── ark.py               #   火山方舟客户端（urllib，OpenAI 兼容端点）
+│   ├── llm.py               #   大模型客户端（urllib；任意 OpenAI 兼容端点）
 │   ├── retriever.py         #   检索适配：上传教材 → ima 知识库 → 内置 corpus/
 │   └── gm.py                #   GM：工具定义 + 调用循环 + DEMO 兜底
 ├── server/                  # 零依赖 HTTP 层（纯标准库）
@@ -62,7 +62,7 @@ academic-galgame-py/
 | `src/engine/game.js` | `engine/game.py` | 纯函数，直译 |
 | `src/engine/battle.js` | `engine/battle.py` | 抛错改为 `ValueError` |
 | `src/engine/storage.js` | `engine/storage.py` | `node:fs` → `os`/`json` |
-| `src/agent/ark.js` | `agent/ark.py` | `fetch` → `urllib.request` |
+| `src/agent/llm.js` | `agent/llm.py` | `fetch` → `urllib.request` |
 | `src/agent/retriever.js` | `agent/retriever.py` | 分词逻辑逐字对齐（中文单字 + 双字组合） |
 | `src/agent/gm.js` | `agent/gm.py` | 工具定义与调用循环结构一致 |
 | `src/server/server.js` | `server/server.py` | `node:http` → `ThreadingHTTPServer` |
@@ -74,28 +74,43 @@ academic-galgame-py/
 
 | 方法 | 路径 | 说明 |
 |---|---|---|
-| `GET` | `/api/health` | 运行模式、BYOK、服务端是否预置方舟 |
+| `GET` | `/api/health` | 运行模式、BYOK、服务端是否预置模型 |
 | `GET` | `/api/state` | 完整游戏状态 |
 | `POST` | `/api/chat` | 对话一次，body `{"message":"..."}` |
 | `POST` | `/api/reset` | 重置进度 |
 | `GET/POST/PATCH/DELETE` | `/api/corpus` | 用户自带教材的增删改查（`?id=` 删单个） |
 | `POST` | `/api/ima/kbs` | 列出 ima 知识库（名称 → ID） |
 | `POST/DELETE` | `/api/subjects` | 学科增删（`?name=`） |
-| `POST` | `/api/test` | 连通性测试，body `{"kind":"ark"\|"ima"}` |
+| `POST` | `/api/test` | 连通性测试，body `{"kind":"llm"\|"ima"}`（旧值 `ark` 仍接受） |
 
 **BYOK 请求头**（服务端不存储任何凭证）：
-`x-ark-key` / `x-ark-model` / `x-ark-base` / `x-ima-key` / `x-ima-client-id` / `x-ima-kb-map`
+`x-llm-key` / `x-llm-model` / `x-llm-base` / `x-ima-key` / `x-ima-client-id` / `x-ima-kb-map`
+（旧头 `x-ark-key` / `x-ark-model` / `x-ark-base` 仍兼容）
 
 ## 配置（环境变量）
 
 | 变量 | 默认 | 说明 |
 |---|---|---|
 | `PORT` / `HOST` | `8787` / `127.0.0.1` | 服务监听（局域网共享设 `HOST=0.0.0.0`） |
-| `ARK_API_KEY` / `ARK_MODEL` | — | 火山方舟；**公开部署请留空**（BYOK 各用各的） |
-| `ARK_BASE_URL` | 方舟官方地址 | 任何 **OpenAI 兼容**端点都可替换 |
+| `LLM_API_KEY` / `LLM_MODEL` | — | 大模型凭证；**公开部署请留空**（BYOK 各用各的） |
+| `LLM_BASE_URL` | 火山方舟地址 | **留空即默认火山方舟**；任何 **OpenAI 兼容**端点都可替换，例如 DeepSeek 填 `https://api.deepseek.com` |
 | `IMA_API_KEY` / `IMA_CLIENT_ID` / `IMA_KB_MAP` | — | ima 知识库（可选） |
 | `GALGAME_SAVE` | `./data/save.json` | 文件存档路径（Web 端默认用内存存档，不受此项影响） |
 | `GALGAME_CORPUS` | `./corpus` | 内置教材语料目录 |
+
+> 规范名是 `LLM_*`。为兼容早期版本，`ARK_API_KEY` / `ARK_MODEL` / `ARK_BASE_URL` 仍作为别名生效（新配置请优先用 `LLM_*`）。
+
+## 换模型（不绑定供应商）
+
+客户端打的是标准 OpenAI 兼容端点：`POST {baseUrl}/chat/completions` + Bearer 鉴权。**改 Base URL 即可换供应商，代码不用动**：
+
+| 供应商 | Base URL | 模型 ID |
+|---|---|---|
+| **DeepSeek** | `https://api.deepseek.com` | `deepseek-chat` | 
+| 火山方舟（默认） | 留空 | `ep-…` 接入点 ID |
+| 其它 OpenAI 兼容服务 | 它自己的地址 | 它自己的模型名 |
+
+> 上表中的 DeepSeek 一行为**本机实测通过**（基础对话 / function calling / `tool_choice:none` / 完整教学回合 2 轮）。其余第三方服务**未实测**，仅按 OpenAI 兼容契约判断可用。
 
 ## 自测
 
@@ -114,12 +129,14 @@ python -m unittest discover -s tests -v
 
 - 12 项引擎自测 + 7 项 HTTP 自测全部通过；
 - 纯标准库：全项目零第三方 `import`（AST 静态扫描确认）；
-- 真浏览器打开 `python run.py` 的页面，界面与 Node 版一致（前端未改一行）。
+- 真浏览器打开 `python run.py` 的页面，界面与 Node 版一致（前端未改一行）；
+- **真实模型教学（DeepSeek）**：基础对话、`function calling`、`tool_choice:none`、完整教学回合 2 轮全部跑通——
+  回合 1 抛情境且拒绝给答案，回合 2 真实触发 `ag_apply`（博弈论 +13 熟练、好感 +9、心情 joy、日志写入）。
 
 **未验证**：
 
-- 真实模型教学（火山方舟）——本环境无凭证，未跑通；
-- ima 知识库绑定与教材拖拽中的服务端解析分支；
+- 火山方舟其它模型、以及 DeepSeek 之外的第三方服务（按 OpenAI 兼容契约判断可用，但未实测）；
+- ima 知识库绑定与教材拖拽中的服务端解析分支（本机无 ima 凭证）；
 - Docker / 公网部署（Python 版未附带 Dockerfile）。
 
 ## 相对 Node 版的能力差异（如实说明）

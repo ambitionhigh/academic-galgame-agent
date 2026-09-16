@@ -21,7 +21,7 @@
 |---|---|---|
 | 运行载体 | 挂在 DSH 组合插件 + 预设内 | 独立 Node 服务 + Web UI，`git clone` 即跑 |
 | 界面 | DSH Client 面板（slot overlay） | 原生 HTML/CSS/JS galgame 界面 |
-| 模型后端 | DSH 会话自带模型 | **火山引擎 · 火山方舟（Ark）**，OpenAI 兼容 |
+| 模型后端 | DSH 会话自带模型 | **任何 OpenAI 兼容接口**（`POST {baseUrl}/chat/completions` + Bearer）；不绑定供应商，Base URL 留空默认火山方舟 |
 | 工具形态 | DSH `defineTool` + `ctx.tools.register` | OpenAI function-calling + GM 编排循环 |
 | 检索 | 内置 ima 凭证 | 本地语料 `corpus/`（默认）+ 可选 ima |
 | 依赖 | DSH 运行时 | **零第三方依赖**（Node ≥ 18 内置模块） |
@@ -106,13 +106,13 @@
 三层单向依赖（详见 README「架构」一节）：
 
 - **engine/**：纯游戏逻辑（配置常量 / 状态机 / 战斗 / 存档 / 会话）。**不发网络请求**。
-- **agent/**：人设、火山方舟客户端、检索适配、GM 编排（工具定义 + 调用循环 + demo 兜底）。
+- **agent/**：人设、大模型接口客户端（任何 OpenAI 兼容服务）、检索适配、GM 编排（工具定义 + 调用循环 + demo 兜底）。
 - **server/**：零依赖 HTTP 服务，伺服静态 UI 与 `/api/*`。
 - **web/**：原生 UI，只通过 `/api/*` 通信。
 
 ## 12. 硬依赖与前提
 
-1. **火山方舟**：`ARK_API_KEY` + `ARK_MODEL`（未配置则 DEMO 模式）。OpenAI 兼容接口 `POST {ARK_BASE_URL}/chat/completions`。
+1. **大模型接口**：`LLM_API_KEY` + `LLM_MODEL`（未配置则 DEMO 模式）。接口为 OpenAI 兼容的 `POST {LLM_BASE_URL}/chat/completions` + Bearer 鉴权，**不绑定供应商**；`LLM_BASE_URL` 留空时默认火山方舟。已实测 DeepSeek 与火山方舟，其它兼容服务理论可用。
 2. **教材来源**：`corpus/` 本地语料（默认）；可选 ima 知识库。
 3. Node.js ≥ 18。
 
@@ -126,10 +126,10 @@
 - 派生能力（洞察/博学/坚韧）的具体 buff 规则。
 - 敌人像素立绘。
 - 语料 → 知识点树 → 学科自动归纳。
-- 多模型后端适配（在 `ark.js` 之外增加 provider 抽象）。
+- 多供应商特化适配（通用 `llm.js` 之上再加 provider 抽象，处理各家鉴权/参数的细微差异）。
 
 ## 15. 版本记录
 
 - **v1.1**：初版规格（世界观 / 双轨玩法 / 战斗 / 成长曲线 / 美术 / 存档 / 硬依赖）。
 - **v1.2（2026-08-30）**：战斗系统 + 场景任务落地（60/75/90 解锁链、三个战斗工具、GM 判卷、濒死特训与胜负奖励）。
-- **v2.0（2026-08-31）**：**独立开源版**——抽成零依赖 Node Agent + 火山方舟后端 + 原生 Web UI；接入 Trae 项目规则/技能；苏格拉底式提问框架由 academic-research-skills 迁移并改编为项目技能。
+- **v2.0（2026-08-31）**：**独立开源版**——抽成零依赖 Node Agent + 大模型后端（OpenAI 兼容，不绑定供应商，默认火山方舟）+ 原生 Web UI；接入 Trae 项目规则/技能；苏格拉底式提问框架由 academic-research-skills 迁移并改编为项目技能。
