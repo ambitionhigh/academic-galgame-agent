@@ -22,8 +22,28 @@ if not defined PYEXE (
 )
 if not defined PYEXE goto nopython
 
-echo   使用：%PYEXE%
-echo.
+rem ---- 检查是否已经配过大模型 ----
+rem  注意：不能把 findstr 包在 if exist 里 —— .env 不存在时它根本没执行，
+rem  errorlevel 会沿用上一条命令的值，导致误判成「已配置」。
+set "CONFIGURED=0"
+if not exist ".env" goto cfgdone
+findstr /b "LLM_API_KEY=" ".env" >nul 2>nul
+if errorlevel 1 goto cfgdone
+set "CONFIGURED=1"
+:cfgdone
+
+if "%CONFIGURED%"=="0" (
+  echo   还没有配置大模型。
+  echo.
+  echo   不配的话，老师只会重复几句写死的话（DEMO 模式），
+  echo   看起来就像「不智能」。
+  echo.
+  echo   现在花 30 秒配一下。不想配的话，在向导里选 0。
+  echo.
+  "%PYEXE%" 首次配置.py
+  echo.
+)
+
 echo   正在启动，请稍候...
 echo.
 echo   浏览器会自动打开。没打开的话，手动访问：http://127.0.0.1:8787
@@ -47,8 +67,8 @@ echo         2. 装了，但安装时没勾选 "Add python.exe to PATH"
 echo            （另外：如果你在 Microsoft Store 里看到过 Python，
 echo              那是Windows的假别名，不算装好）
 echo.
-echo       请照这份文档做一次，几分钟就好：
-echo         同目录下的「最简单的方法.md」
+echo   请照这份文档做一次，几分钟就好：
+echo     同目录下的「最简单的方法.md」
 echo.
 pause
 exit /b 1
