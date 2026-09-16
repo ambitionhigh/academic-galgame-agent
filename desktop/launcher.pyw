@@ -40,6 +40,7 @@ DEFAULT_PORT = 8787
 READY_TIMEOUT = 45
 CREATE_NO_WINDOW = 0x08000000
 DETACHED_PROCESS = 0x00000008
+CREATE_BREAKAWAY_FROM_JOB = 0x01000000
 IS_WINDOWS = os.name == "nt"
 FROZEN = bool(getattr(sys, "frozen", False))
 
@@ -594,12 +595,20 @@ def main():
     log_to(f"日志文件：{log_path}")
 
     flags = (CREATE_NO_WINDOW | DETACHED_PROCESS) if IS_WINDOWS else 0
+    # 再要一个「脱离 job object」：有些宿主（终端、某些启动器、受限运行环境）
+    # 会把子进程放进 job，job 一关就把它一起收走 —— 表现就是「服务起来了又秒退」。
+    # 不在 job 里时这个标志会被系统忽略；万一当前 job 不允许脱离，就退回不带它。
+    breakaway = flags | CREATE_BREAKAWAY_FROM_JOB if IS_WINDOWS else 0
     try:
         log = open(log_path, "a", encoding="utf-8", errors="replace")
         log.write(f"\n===== {time.strftime('%Y-%m-%d %H:%M:%S')} 端口 {port} =====\n")
         log.flush()
-        proc = subprocess.Popen(cmd, env=env, stdin=subprocess.DEVNULL, stdout=log, stderr=log,
-                                cwd=str(install_dir()), creationflags=flags, close_fds=True)
+        try:
+            proc = subprocess.Popen(cmd, env=env, stdin=subprocess.DEVNULL, stdout=log, stderr=log,
+                                    cwd=str(install_dir()), creationflags=breakaway, close_fds=True)
+        except OSError:
+            proc = subprocess.Popen(cmd, env=env, stdin=subprocess.DEVNULL, stdout=log, stderr=log,
+                                    cwd=str(install_dir()), creationflags=flags, close_fds=True)
     except Exception as e:
         alert(APP_NAME, f"启动失败：\n{e}")
         return 1
