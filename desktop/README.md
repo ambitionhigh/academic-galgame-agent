@@ -174,21 +174,29 @@ Win32 API → taskkill → PowerShell `Stop-Process`。
 
 改完用 `学术galgame.exe --selftest` 验证，它会逐项检查这些路径。
 
-### 11. 在受限运行环境里，「脱离启动」的服务会被回收
+### 11. 别用 `curl -o NUL` 做启动探测（这一条是给自己人的警告）
 
-这个项目的模型是：启动器起一个脱离父进程的服务，然后自己退出（和你桌面那个
-`launch-dsh.vbs` 完全一样的套路）。
+这个项目的模型是：启动器起一个脱离父进程的服务，然后自己退出
+（和你桌面那个 `launch-dsh.vbs` 完全一样的套路）。**实测它是可靠的** ——
+服务在启动器退出后继续存活，跨多条命令都还在。
 
-在**开发沙箱**里，子进程会随命令结束被一起收掉 —— 表现为「日志说已就绪，外部却连不上」。
-**这不是产品缺陷**：真实用户从资源管理器双击时不存在这种 job 约束，
-而且启动时还带了 `CREATE_BREAKAWAY_FROM_JOB`（不被允许时自动回退）。
-
-排查这类现象时，用**前台模式**把服务本身和「脱离启动」分开验证：
+但开发时我们一度误判成「服务被回收 / 启动要 60 秒」，原因是探测写法有问题：
 
 ```powershell
-学术galgame.exe --serve --port 8787     # 服务直接跑在这个进程里
-curl http://127.0.0.1:8787/api/health    # 实测 1.1 秒就绪，连续 10 秒稳定 200
+# ✗ 在受限环境里会稳定返回 000，让你以为服务没起来
+& curl.exe -s -o NUL -w "%{http_code}" http://127.0.0.1:8787/api/health
+
+# ✓ 用 Python 的 urllib 探测，和启动器内部用的是同一套，结果可信
+python -c "import urllib.request;print(urllib.request.urlopen('http://127.0.0.1:8787/api/health',timeout=3).status)"
+
+# ✓ 或者把 body 丢到真实文件，别用 NUL 设备
+& curl.exe -s -o "$env:TEMP\probe.txt" -w "%{http_code}" http://127.0.0.1:8787/api/health
 ```
+
+用可信写法实测的结果：**从桌面快捷方式冷启动到就绪只要 0.7 秒**。
+
+> 启动时仍然带了 `CREATE_BREAKAWAY_FROM_JOB`（当前 job 不允许时自动回退）：
+> 不在 job 里时系统会忽略它，在某些宿主里则能防止服务被一起收走 —— 纯保险。
 
 ---
 
