@@ -93,7 +93,7 @@ TOOLS = [
         'type': 'function',
         'function': {
             'name': 'ag_battle_apply',
-            'description': '结算一次战斗答题。概念题答对 damageEnemy=1/答错 damageSelf=10；开放题 damageEnemy=3×正确度、damageSelf=20×(1−正确度)；领主求助只传 correctness(≥0.6 通过)。胜负奖励由引擎自动发放。',
+            'description': '结算一次战斗答题。概念题答对 damageEnemy=1/答错 damageSelf=10；开放题 damageEnemy=3×正确度、damageSelf=20×(1-正确度)；领主求助只传 correctness(≥0.6 通过)。胜负奖励由引擎自动发放。',
             'parameters': {
                 'type': 'object',
                 'properties': {
@@ -123,9 +123,9 @@ def render_state(state):
     for name, v in state['subjects'].items():
         q = v.get('quest') or {}
         chain = '领主%s 魔将%s 魔王%s' % (
-            '✓' if q.get('lord') else '✗',
-            '✓' if q.get('general') else '✗',
-            '✓' if v.get('conquered') else '✗')
+            '[OK]' if q.get('lord') else '[X]',
+            '[OK]' if q.get('general') else '[X]',
+            '[OK]' if v.get('conquered') else '[X]')
         lines.append('- %s：熟练度 %s（%s）' % (name, v.get('mastery'), chain))
     subs = '\n'.join(lines)
     b = state.get('battle')

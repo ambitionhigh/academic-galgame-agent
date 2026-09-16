@@ -13,3 +13,7 @@
 *.html text eol=lf
 *.json text eol=lf
 *.yml text eol=lf
+
+# Windows 批处理必须保持 CRLF —— cmd 用 LF 会解析错乱（把中文当命令执行）
+*.bat text eol=crlf
+*.cmd text eol=crlf

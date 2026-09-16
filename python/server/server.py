@@ -360,20 +360,69 @@ class Handler(BaseHTTPRequestHandler):
         self.dispatch()
 
 
+def _port_in_use(host, port):
+    """探测端口是否已被占用。
+
+    必须自己探测：Windows 的 SO_REUSEADDR 语义允许第二个进程绑定到已占用的端口
+    （Linux 上会直接报错），于是「重复启动」会静默成功、请求却可能打到旧进程上——
+    对使用者来说表现为「改了代码重启却没生效」。这里显式拦掉。
+    """
+    import socket
+    probe_host = '127.0.0.1' if host in ('0.0.0.0', '::', '') else host
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            s.settimeout(0.6)
+            return s.connect_ex((probe_host, port)) == 0
+    except OSError:
+        return False
+
+
 def main():
-    server = ThreadingHTTPServer((HOST, PORT), Handler)
+    if _port_in_use(HOST, PORT):
+        print('')
+        print('  [X] 启动失败：端口 %s 已经被占用。' % PORT)
+        print('')
+        print('    最常见的原因：你已经开着一个了（可能就在另一个命令行窗口里）。')
+        print('')
+        print('    怎么办，二选一：')
+        print('      1) 想关掉旧的：回到那个命令行窗口，按 Ctrl + C。')
+        print('      2) 想同时开第二个：换个端口再启动，例如：')
+        print('           set PORT=8788')
+        print('           python run.py')
+        print('')
+        print('    提示：端口被谁占了，可用这条命令查（PowerShell）：')
+        print('           Get-NetTCPConnection -LocalPort %s -State Listen' % PORT)
+        print('')
+        return 1
+
+    try:
+        server = ThreadingHTTPServer((HOST, PORT), Handler)
+    except OSError as e:
+        print('')
+        print('  [X] 启动失败：无法监听 %s:%s' % (HOST, PORT))
+        print('    系统错误：%s' % e)
+        print('    若是权限问题，可改用 1024 以上的端口（见上）。')
+        print('')
+        return 1
+
     server.daemon_threads = True
     server_llm = describe_llm({})
     mode = ('服务端预置大模型（模型：%s，%s）—— 也可由访客自带 Key 覆盖'
             % (server_llm['model'], server_llm['baseUrl'])
             if server_llm['configured']
             else 'BYOK 模式（服务端未放任何 Key，由每位访客自带凭证）')
-    print('\n  学术galgame Agent（Python · 纯标准库）已启动')
-    print('  → http://%s:%s' % (HOST, PORT))
-    print('  模型来源：%s\n' % mode)
+    print('')
+    print('  [OK] 学术galgame Agent（Python 版）已启动')
+    print('')
+    print('    请在浏览器打开：  http://%s:%s' % (HOST, PORT))
+    print('    模型来源：%s' % mode)
+    print('')
+    print('    停止服务：在本窗口按 Ctrl + C')
+    print('')
     try:
         server.serve_forever()
     except KeyboardInterrupt:
-        print('\n  已停止。')
+        print('\n  已停止。\n')
     finally:
         server.server_close()
+    return 0
