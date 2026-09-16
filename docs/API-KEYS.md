@@ -102,7 +102,7 @@ DeepSeek、火山方舟、OpenAI、本地推理服务……只要接口兼容就
 |---|---|---|
 | `LLM_API_KEY` | 你的身份凭证 | 你选的服务方的控制台（DeepSeek / 火山方舟 …） |
 | `LLM_MODEL` | 调哪个模型 | 服务方的模型名（如 `deepseek-chat`）；火山方舟填**接入点 ID**（`ep-…`） |
-| `LLM_BASE_URL` | 接口地址 | 服务方给的地址；**留空 = 默认火山方舟** |
+| `LLM_BASE_URL` | 接口地址 | 服务方给的地址；**留空 = 按模型名自动识别**（deepseek-chat → DeepSeek，ep-… → 火山方舟） |
 
 ### 步骤（以火山方舟为例；用 DeepSeek 则只需在建 Key 后填 `LLM_MODEL=deepseek-chat` + `LLM_BASE_URL=https://api.deepseek.com`）
 
@@ -132,7 +132,7 @@ DeepSeek、火山方舟、OpenAI、本地推理服务……只要接口兼容就
 ```ini
 LLM_API_KEY=ark-xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx-xxxxx
 LLM_MODEL=ep-20250101-xxxxx
-LLM_BASE_URL=                                  # 留空即默认方舟；也可显式写 https://ark.cn-beijing.volces.com/api/v3
+LLM_BASE_URL=                                  # 留空则按模型名自动识别；也可显式写 https://api.deepseek.com 或 https://ark.cn-beijing.volces.com/api/v3
 ```
 
 > 早期版本用的 `ARK_API_KEY` / `ARK_MODEL` / `ARK_BASE_URL` 仍然被识别，新配置请用 `LLM_*`。

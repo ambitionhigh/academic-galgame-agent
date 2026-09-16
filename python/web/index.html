@@ -109,16 +109,19 @@
       </p>
 
       <h3>① 大模型接口（老师 · 任何 OpenAI 兼容服务）<span class="req">必填才能用真模型</span></h3>
+      <label class="field"><span>服务商</span>
+        <select id="cfg-llm-provider"></select></label>
       <label class="field"><span>API Key</span>
         <input id="cfg-llm-key" type="password" autocomplete="off" placeholder="你的 API Key" /></label>
       <label class="field"><span>模型 ID</span>
         <input id="cfg-llm-model" autocomplete="off" placeholder="deepseek-chat" /></label>
-      <label class="field"><span>Base URL（可留空）</span>
+      <label class="field"><span>Base URL</span>
         <input id="cfg-llm-base" autocomplete="off" placeholder="https://api.deepseek.com" /></label>
       <p class="modal-note">
-        不绑定任何一家供应商，只要接口是 <b>OpenAI 兼容</b>（<code>POST {baseUrl}/chat/completions</code> + Bearer 鉴权）就能用。
-        已实测：<b>DeepSeek</b> → <code>https://api.deepseek.com</code> + <code>deepseek-chat</code>；
-        <b>火山方舟</b> → 留空 Base URL（默认值）+ <code>ep-…</code> 接入点。
+        <b>选好服务商会自动填好地址和模型名</b>，你只要贴 API Key。
+        没列出你的服务商？选「其它 / 自定义」自己填 ——
+        只要接口是 <b>OpenAI 兼容</b>（<code>POST {baseUrl}/chat/completions</code> + Bearer 鉴权）就能用。
+        <br /><span id="cfg-llm-hint" class="provider-hint"></span>
       </p>
       <div class="test-row">
         <button id="cfg-test-llm" class="ghost-btn">测试模型连接</button>

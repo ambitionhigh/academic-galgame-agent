@@ -19,7 +19,7 @@ import { loadEnv } from './env.js'
 import { GameSession } from '../engine/session.js'
 import { MemoryStorage } from '../engine/storage.js'
 import { GameMaster } from '../agent/gm.js'
-import { describeLlm, llmChat } from '../agent/llm.js'
+import { describeLlm, llmChat, PROVIDER_PRESETS } from '../agent/llm.js'
 import { retrieve, testIma, imaEnabled, listKnowledgeBases } from '../agent/retriever.js'
 
 loadEnv()
@@ -175,16 +175,26 @@ const server = createServer(async (req, res) => {
       const serverLlm = describeLlm({})      // 只反映服务端预置（BYOK 时为空）
       const creds = credsFrom(req)
       const clientOk = Boolean(creds.llmApiKey && creds.llmModel)
+      const clientLlm = describeLlm(creds)
       return sendJson(res, 200, {
         ok: true,
         byok: true,                                   // 本服务支持自带密钥
         llmConfigured: clientOk || serverLlm.configured,
         model: creds.llmModel || serverLlm.model || null,
+        // 让界面能显示「请求实际发去哪儿」，以及这个地址是用户填的还是自动认出来的
+        baseUrl: clientOk ? clientLlm.baseUrl : serverLlm.baseUrl,
+        baseUrlSource: clientOk ? clientLlm.baseUrlSource : serverLlm.baseUrlSource,
+        providerName: clientOk ? clientLlm.providerName : serverLlm.providerName,
         imaConfigured: imaEnabled(creds),
         serverPreset: { llm: serverLlm.configured, ark: serverLlm.configured, ima: imaEnabled({}) },
         demo: !clientOk && !serverLlm.configured,
         sessions: sessions.size,
       })
+    }
+
+    // 服务商预设表：前端下拉框直接用它渲染，避免两版各维护一份
+    if (pathname === '/api/providers' && req.method === 'GET') {
+      return sendJson(res, 200, { ok: true, providers: PROVIDER_PRESETS })
     }
 
     if (pathname === '/api/state' && req.method === 'GET') {

@@ -29,6 +29,7 @@ const el = {
   battleSubject: $('battle-subject'), battleDifficulty: $('battle-difficulty'),
   battleStreak: $('battle-streak'), retreat: $('retreat-btn'),
   modal: $('settings'), modalClose: $('settings-close'),
+  cfgLlmProvider: $('cfg-llm-provider'), cfgLlmHint: $('cfg-llm-hint'),
   cfgLlmKey: $('cfg-llm-key'), cfgLlmModel: $('cfg-llm-model'), cfgLlmBase: $('cfg-llm-base'),
   cfgImaKey: $('cfg-ima-key'), cfgImaClientId: $('cfg-ima-client-id'), cfgImaKbMap: $('cfg-ima-kb-map'),
   cfgTestLlm: $('cfg-test-llm'), cfgLlmResult: $('cfg-llm-result'),
@@ -48,6 +49,77 @@ let currentSpriteKey = ''
 let cachedSubjects = []   // 学科名，用于「按学科选知识库」
 let cachedKbs = []        // 拉取到的 ima 知识库 [{id,name}]
 
+/* ══════════ 服务商预设 ══════════
+ * 地址表以后端 /api/providers 为准（两版服务端共用一份，前端不会跑偏）；
+ * 下面这份只是拿不到接口时的兜底，保证设置面板永远能用。
+ */
+const PROVIDER_FALLBACK = [
+  { id: 'deepseek', name: 'DeepSeek', baseUrl: 'https://api.deepseek.com', model: 'deepseek-chat', hint: '便宜好用，国内可直连' },
+  { id: 'ark', name: '火山方舟（火山引擎）', baseUrl: 'https://ark.cn-beijing.volces.com/api/v3', model: '', modelHint: 'ep-xxxxxxxx（推理接入点 ID，不是模型名）', hint: '模型名要填你创建的推理接入点' },
+  { id: 'moonshot', name: '月之暗面 Kimi', baseUrl: 'https://api.moonshot.cn/v1', model: 'moonshot-v1-8k', hint: '' },
+  { id: 'zhipu', name: '智谱 GLM', baseUrl: 'https://open.bigmodel.cn/api/paas/v4', model: 'glm-4-flash', hint: '' },
+  { id: 'dashscope', name: '阿里通义千问', baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1', model: 'qwen-plus', hint: '' },
+  { id: 'siliconflow', name: '硅基流动', baseUrl: 'https://api.siliconflow.cn/v1', model: 'deepseek-ai/DeepSeek-V3', hint: '' },
+  { id: 'openai', name: 'OpenAI', baseUrl: 'https://api.openai.com/v1', model: 'gpt-4o-mini', hint: '国内需自备网络环境' },
+  { id: 'custom', name: '其它 / 自定义', baseUrl: '', model: '', hint: '任何 OpenAI 兼容地址都行，填到 /v1 这一层' },
+]
+let providerList = PROVIDER_FALLBACK
+
+const normBase = (u) => (u || '').trim().replace(/\/+$/, '').toLowerCase()
+
+/** 从已有配置反推服务商（只为把下拉框显示对，不影响实际请求） */
+function detectProvider(baseUrl, model) {
+  const b = normBase(baseUrl)
+  if (b) {
+    const hit = providerList.find((p) => p.baseUrl && normBase(p.baseUrl) === b)
+    return hit ? hit.id : 'custom'
+  }
+  const m = (model || '').toLowerCase()
+  if (!m) return 'deepseek'
+  if (m.includes('/')) return 'siliconflow'
+  const rules = [['ep-', 'ark'], ['deepseek', 'deepseek'], ['moonshot', 'moonshot'], ['kimi', 'moonshot'],
+    ['glm', 'zhipu'], ['qwen', 'dashscope'], ['tongyi', 'dashscope'],
+    ['gpt', 'openai'], ['chatgpt', 'openai'], ['o1', 'openai'], ['o3', 'openai']]
+  for (const [pre, id] of rules) if (m.startsWith(pre)) return id
+  return 'custom'
+}
+
+async function loadProviders() {
+  try {
+    const r = await fetch('/api/providers').then((x) => x.json())
+    if (r && Array.isArray(r.providers) && r.providers.length) providerList = r.providers
+  } catch { /* 用兜底表 */ }
+  el.cfgLlmProvider.innerHTML = ''
+  for (const p of providerList) {
+    const o = document.createElement('option')
+    o.value = p.id
+    o.textContent = p.name
+    el.cfgLlmProvider.appendChild(o)
+  }
+}
+
+/** 选中某个服务商：把地址（和模型名）填进去 */
+function applyProvider(id, opts) {
+  const fillModel = !opts || opts.fillModel !== false
+  const p = providerList.find((x) => x.id === id)
+  if (!p) return
+  el.cfgLlmBase.value = p.baseUrl || ''
+  if (fillModel) el.cfgLlmModel.value = p.model || ''
+  el.cfgLlmBase.placeholder = p.baseUrl || 'https://你的服务商地址/v1'
+  el.cfgLlmModel.placeholder = p.modelHint || p.model || '模型名，如 deepseek-chat'
+  const hint = el.cfgLlmHint
+  if (!hint) return
+  if (p.id === 'custom') {
+    hint.innerHTML = '填<b>你自己的</b> OpenAI 兼容地址（一般到 <code>/v1</code> 为止，<b>不要</b>带 <code>/chat/completions</code>）。'
+  } else if (p.id === 'ark') {
+    hint.innerHTML = '火山方舟的「模型 ID」要填<b>推理接入点</b>（形如 <code>ep-xxxxxxxx</code>），不是模型名。'
+  } else if (p.hint) {
+    hint.textContent = p.hint
+  } else {
+    hint.textContent = ''
+  }
+}
+
 /* ══════════ 凭证管理（BYOK）══════════ */
 function loadCreds() {
   try {
@@ -58,8 +130,7 @@ function loadCreds() {
     if (!raw.llmBase && raw.arkBase) raw.llmBase = raw.arkBase
     return raw
   } catch { return {} }
-}
-function persistCreds(c) { localStorage.setItem(CRED_KEY, JSON.stringify(c)) }
+}function persistCreds(c) { localStorage.setItem(CRED_KEY, JSON.stringify(c)) }
 function clearCreds() { localStorage.removeItem(CRED_KEY) }
 
 /** 把凭证转成请求头；服务端只读不存。
@@ -79,6 +150,7 @@ function credHeaders() {
 
 function readForm() {
   return {
+    llmProvider: el.cfgLlmProvider.value || '',
     llmKey: el.cfgLlmKey.value.trim(),
     llmModel: el.cfgLlmModel.value.trim(),
     llmBase: el.cfgLlmBase.value.trim(),
@@ -92,6 +164,15 @@ function fillForm(c) {
   el.cfgLlmKey.value = c.llmKey || ''
   el.cfgLlmModel.value = c.llmModel || ''
   el.cfgLlmBase.value = c.llmBase || ''
+  // 下拉框只是「显示」用：从已保存的地址反推，绝不覆盖用户填的值
+  const pid = c.llmProvider || detectProvider(c.llmBase, c.llmModel)
+  if (providerList.some((p) => p.id === pid)) {
+    el.cfgLlmProvider.value = pid
+    applyProvider(pid, { fillModel: false })
+    // applyProvider 会按预设重置地址与模型名，这里恢复成用户实际保存的值
+    el.cfgLlmBase.value = c.llmBase || ''
+    el.cfgLlmModel.value = c.llmModel || ''
+  }
   el.cfgImaKey.value = c.imaKey || ''
   el.cfgImaClientId.value = c.imaClientId || ''
   el.cfgImaKbMap.value = c.imaKbMap || ''
@@ -205,10 +286,15 @@ async function api(path, options = {}) {
 
 function setModeBadge(h) {
   if (h.llmConfigured) {
-    el.mode.textContent = `${h.model}${h.imaConfigured ? ' · ima' : ''}`
+    const auto = h.baseUrlSource === 'inferred'
+      ? `（${h.providerName || '已自动识别'}）`
+      : ''
+    el.mode.textContent = `${h.model}${auto}${h.imaConfigured ? ' · ima' : ''}`
+    el.mode.title = h.baseUrl ? `请求发往：${h.baseUrl}` : ''
     el.mode.classList.remove('demo')
   } else {
     el.mode.textContent = 'DEMO 模式 · 点「⚙ 设置」填自己的 Key'
+    el.mode.title = ''
     el.mode.classList.add('demo')
   }
 }
@@ -613,6 +699,8 @@ el.cfgClear.addEventListener('click', async () => {
   pushMessage('系统', '已清空本机凭证，回到 DEMO 模式。', 'sys')
 })
 el.cfgTestLlm.addEventListener('click', testLlm)
+// 换服务商 → 自动把地址和模型名填好（用户还是可以自己改）
+el.cfgLlmProvider.addEventListener('change', () => applyProvider(el.cfgLlmProvider.value))
 el.cfgTestIma.addEventListener('click', testIma)
 el.cfgListKb.addEventListener('click', loadKbList)
 el.cfgAddSubject.addEventListener('click', () => addSubject(el.cfgNewSubject.value))
@@ -653,6 +741,10 @@ el.cfgClearFiles.addEventListener('click', async () => {
 async function boot() {
   // 文件选择器接受的后缀与 extract.js 保持同一真源
   if (el.cfgFiles) el.cfgFiles.setAttribute('accept', ACCEPT)
+
+  // 服务商下拉要在填表单之前就绪（拉不到接口时用内置兜底表）
+  await loadProviders()
+  fillForm(loadCreds())
 
   // 深链优先：先开面板，不被后面的网络/存储操作阻塞
   const wantSettings = location.hash === '#settings'

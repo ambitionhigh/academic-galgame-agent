@@ -126,7 +126,7 @@ academic-galgame-py/
 |---|---|---|
 | `PORT` / `HOST` | `8787` / `127.0.0.1` | 服务监听（局域网共享设 `HOST=0.0.0.0`） |
 | `LLM_API_KEY` / `LLM_MODEL` | — | 大模型凭证；**公开部署请留空**（BYOK 各用各的） |
-| `LLM_BASE_URL` | 火山方舟地址 | **留空即默认火山方舟**；任何 **OpenAI 兼容**端点都可替换，例如 DeepSeek 填 `https://api.deepseek.com` |
+| `LLM_BASE_URL` | 火山方舟地址 | **留空 = 按模型名自动识别服务商**；任何 **OpenAI 兼容**端点都可替换，例如 DeepSeek 填 `https://api.deepseek.com` |
 | `IMA_API_KEY` / `IMA_CLIENT_ID` / `IMA_KB_MAP` | — | ima 知识库（可选） |
 | `GALGAME_SAVE` | `./data/save.json` | 文件存档路径（Web 端默认用内存存档，不受此项影响） |
 | `GALGAME_CORPUS` | `./corpus` | 内置教材语料目录 |

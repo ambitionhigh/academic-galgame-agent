@@ -14,8 +14,10 @@
 | **开源协议** | MIT |
 | **技术标签** | `ai-agent` `galgame` `socratic` `education` `llm` `openai-compatible` `byok` `deepseek` `volcengine` `ark` `trae` `nodejs` `zero-dependency` |
 
-> 标签说明：`volcengine` / `ark` 保留，因为作品**默认**就跑在火山方舟上（`LLM_BASE_URL` 留空即方舟）；
-> `openai-compatible` / `byok` / `deepseek` 是同时成立的事实——接口不绑定供应商，且 DeepSeek 路径已实测通过。
+> 标签说明：`volcengine` / `ark` 保留，因为设置面板内置了火山方舟预设（模型名填 `ep-…` 即可自动识别）；
+> `openai-compatible` / `byok` / `deepseek` 是同时成立的事实——接口不绑定供应商，
+> 且 DeepSeek 路径已实测通过（含「只填模型名、不填 Base URL」的自动识别）。
+> 其余内置预设：Kimi / 智谱 GLM / 通义千问 / 硅基流动 / OpenAI，以及「自定义」任意 OpenAI 兼容地址。
 
 ---
 

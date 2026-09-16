@@ -224,12 +224,17 @@ html, body {
   border: 1px solid rgba(255, 212, 121, 0.35); border-radius: 999px; padding: 1px 8px;
 }
 .field { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--muted); }
-.field input, .field textarea {
+.field input, .field textarea, .field select {
   padding: 8px 10px; border-radius: 8px; font-size: 12.5px; font-family: inherit;
   border: 1px solid var(--line); background: rgba(0, 0, 0, 0.3); color: var(--text); outline: none;
 }
-.field input:focus, .field textarea:focus { border-color: var(--cyan-dim); box-shadow: 0 0 0 3px rgba(87, 224, 255, 0.1); }
+.field select { cursor: pointer; }
+.field select option { background: #0b1622; color: var(--text); }
+.field input:focus, .field textarea:focus, .field select:focus { border-color: var(--cyan-dim); box-shadow: 0 0 0 3px rgba(87, 224, 255, 0.1); }
 .field textarea { resize: vertical; }
+/* 服务商提示：跟着选中的服务商变，告诉用户这一家要特别注意什么 */
+.provider-hint { display: block; margin-top: 6px; color: var(--gold); }
+.provider-hint:empty { display: none; }
 .test-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .test-result { font-size: 12px; }
 .test-result.ok { color: var(--green); }

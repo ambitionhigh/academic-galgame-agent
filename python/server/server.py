@@ -25,7 +25,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from engine.session import GameSession
 from engine.storage import MemoryStorage
 from agent.gm import GameMaster
-from agent.llm import describe_llm, llm_chat
+from agent.llm import describe_llm, llm_chat, PROVIDER_PRESETS
 from agent.retriever import retrieve, test_ima, ima_enabled, list_knowledge_bases
 
 from .env import load_env, env_path
@@ -193,11 +193,16 @@ class Handler(BaseHTTPRequestHandler):
                 server_llm = describe_llm({})      # 只反映服务端预置（BYOK 时为空）
                 creds = creds_from_headers(self.headers)
                 client_ok = bool(creds.get('llmApiKey') and creds.get('llmModel'))
+                client_llm = describe_llm(creds)
                 return self.send_json(200, {
                     'ok': True,
                     'byok': True,
                     'llmConfigured': client_ok or server_llm['configured'],
                     'model': creds.get('llmModel') or server_llm['model'] or None,
+                    # 让界面能显示「请求实际发去哪儿」，以及这个地址是用户填的还是自动认出来的
+                    'baseUrl': client_llm['baseUrl'] if client_ok else server_llm['baseUrl'],
+                    'baseUrlSource': client_llm['baseUrlSource'] if client_ok else server_llm['baseUrlSource'],
+                    'providerName': client_llm['providerName'] if client_ok else server_llm['providerName'],
                     'imaConfigured': ima_enabled(creds),
                     'serverPreset': {'llm': server_llm['configured'],
                                      'ark': server_llm['configured'],
@@ -205,6 +210,10 @@ class Handler(BaseHTTPRequestHandler):
                     'demo': (not client_ok) and not server_llm['configured'],
                     'sessions': len(sessions),
                 })
+
+            # 服务商预设表：前端下拉框直接用它渲染，避免两边各维护一份
+            if pathname == '/api/providers' and method == 'GET':
+                return self.send_json(200, {'ok': True, 'providers': PROVIDER_PRESETS})
 
             if pathname == '/api/state' and method == 'GET':
                 entry, cookie = self.session_for()

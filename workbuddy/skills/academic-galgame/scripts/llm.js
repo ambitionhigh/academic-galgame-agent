@@ -14,15 +14,53 @@ import { readCredsFile, saveCreds, mask, CRED_FILE } from './creds.js'
 export const DEFAULT_BASE = 'https://ark.cn-beijing.volces.com/api/v3'
 export const DEFAULT_MODEL = 'deepseek-v3-250324'
 
+/** 服务商预设（与 Web 版同一份，避免「只认火山引擎」的误会） */
+export const PROVIDER_PRESETS = [
+  { id: 'deepseek', name: 'DeepSeek', baseUrl: 'https://api.deepseek.com', model: 'deepseek-chat' },
+  { id: 'ark', name: '火山方舟（火山引擎）', baseUrl: 'https://ark.cn-beijing.volces.com/api/v3', model: '', modelHint: 'ep-xxxxxxxx（推理接入点 ID）' },
+  { id: 'moonshot', name: '月之暗面 Kimi', baseUrl: 'https://api.moonshot.cn/v1', model: 'moonshot-v1-8k' },
+  { id: 'zhipu', name: '智谱 GLM', baseUrl: 'https://open.bigmodel.cn/api/paas/v4', model: 'glm-4-flash' },
+  { id: 'dashscope', name: '阿里通义千问', baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1', model: 'qwen-plus' },
+  { id: 'siliconflow', name: '硅基流动', baseUrl: 'https://api.siliconflow.cn/v1', model: 'deepseek-ai/DeepSeek-V3' },
+  { id: 'openai', name: 'OpenAI', baseUrl: 'https://api.openai.com/v1', model: 'gpt-4o-mini' },
+]
+
+const _BY_ID = Object.fromEntries(PROVIDER_PRESETS.map((p) => [p.id, p]))
+const _MODEL_RULES = [
+  ['ep-', 'ark'], ['deepseek', 'deepseek'], ['moonshot', 'moonshot'], ['kimi', 'moonshot'],
+  ['glm', 'zhipu'], ['charglm', 'zhipu'], ['qwen', 'dashscope'], ['tongyi', 'dashscope'],
+  ['gpt', 'openai'], ['chatgpt', 'openai'], ['o1', 'openai'], ['o3', 'openai'], ['o4', 'openai'],
+]
+
+/** 从模型名猜服务商；猜不出来返回 '' */
+export function inferProvider(model) {
+  const m = String(model || '').trim().toLowerCase()
+  if (!m) return ''
+  if (m.includes('/')) return 'siliconflow'
+  for (const [prefix, id] of _MODEL_RULES) if (m.startsWith(prefix)) return id
+  return ''
+}
+
 /* ══════════ 凭证 ══════════ */
 
-/** 生效 LLM 配置：环境变量 > 本地文件 */
+/** 生效 LLM 配置：环境变量 > 本地文件。
+ *
+ *  地址的取法：填了就用手填的；没填就按模型名认服务商；
+ *  都认不出来时 baseUrl 为空 —— 调用时会明确报错，而不是偷偷发去火山方舟。
+ */
 export function loadLlm() {
   const f = readCredsFile()
+  const model = process.env.LLM_MODEL || f.llmModel || DEFAULT_MODEL
+  const explicit = (process.env.LLM_BASE_URL || f.llmBaseUrl || '').trim()
+  const provider = explicit ? '' : inferProvider(model)
+  const baseUrl = (explicit || (_BY_ID[provider] && _BY_ID[provider].baseUrl) || '').replace(/\/+$/, '')
   return {
     llmApiKey: process.env.LLM_API_KEY || f.llmApiKey || '',
-    llmModel: process.env.LLM_MODEL || f.llmModel || DEFAULT_MODEL,
-    llmBaseUrl: (process.env.LLM_BASE_URL || f.llmBaseUrl || DEFAULT_BASE).replace(/\/+$/, ''),
+    llmModel: model,
+    llmBaseUrl: baseUrl,
+    provider,
+    providerName: (_BY_ID[provider] && _BY_ID[provider].name) || '',
+    baseUrlSource: explicit ? 'explicit' : (baseUrl ? 'inferred' : 'missing'),
   }
 }
 
@@ -34,10 +72,11 @@ export function saveLlm(patch) {
   return saveCreds(next)
 }
 
-/** 自备 API 是否可用 */
+/** 自备 API 是否可用（只要 key + 模型名齐了就算「配了」；
+ *  地址认不出来时会在真正调用时明确报错，而不是悄悄退回积分模式让人以为在用 Key） */
 export function llmConfigured(cfg) {
   const c = cfg || loadLlm()
-  return Boolean(c.llmApiKey && c.llmModel && c.llmBaseUrl)
+  return Boolean(c.llmApiKey && c.llmModel)
 }
 
 export function llmStatus() {
@@ -52,6 +91,10 @@ export function llmStatus() {
     llmApiKey: mask(c.llmApiKey),
     llmModel: c.llmModel,
     llmBaseUrl: c.llmBaseUrl,
+    // 地址是手填的还是按模型名认出来的 —— 让人一眼看懂请求会发去哪儿
+    baseUrlSource: c.baseUrlSource,
+    provider: c.provider,
+    providerName: c.providerName,
     fromEnv: Boolean(process.env.LLM_API_KEY || process.env.LLM_BASE_URL || process.env.LLM_MODEL),
   }
 }
@@ -59,6 +102,30 @@ export function llmStatus() {
 /* ══════════ 调用 ══════════ */
 
 const REQ_TIMEOUT = 90000
+
+/** 把原始英文报错翻成能照着做的话 */
+function explainHttp(code, baseUrl, detail) {
+  const where = `${baseUrl}/chat/completions`
+  const short = String(detail || '').trim().slice(0, 300)
+  if (code === 401) {
+    return '认证失败（HTTP 401）。两种可能：\n'
+      + '  ① API Key 填错了或不完整；\n'
+      + `  ② Key 是别家的，但请求发去了 ${baseUrl}。\n`
+      + '用 llm status 看一眼「请求会发去哪儿」，必要时用 '
+      + 'llm config --base-url <地址> 指定（DeepSeek 是 https://api.deepseek.com）。\n'
+      + `服务端原话：${short}`
+  }
+  if (code === 403) return `被拒绝（HTTP 403）：Key 没有调用该模型的权限，或模型未开通。当前地址：${where}\n服务端原话：${short}`
+  if (code === 404) {
+    return `地址不存在（HTTP 404）：${where}\n`
+      + 'Base URL 一般填到 /v1 这一层，不要带 /chat/completions。\n'
+      + `服务端原话：${short}`
+  }
+  if (code === 429) return `请求太频繁或额度用尽（HTTP 429）。稍后再试。\n服务端原话：${short}`
+  if (code === 400) return `服务端说请求有问题（HTTP 400）——最常见的是模型名不对。当前地址：${where}\n服务端原话：${short}`
+  if (code >= 500) return `服务端故障（HTTP ${code}），不是配置问题，稍后再试。${short}`
+  return `LLM 请求失败（HTTP ${code}，${where}）：${short}`
+}
 
 /**
  * OpenAI 兼容 chat completions。
@@ -70,6 +137,11 @@ export async function llmChat(messages, opts = {}) {
     const e = new Error('未配置自备 LLM API —— 走 WorkBuddy 积分模式，由你（Agent）自己完成这一步')
     e.needsWorkbuddy = true
     throw e
+  }
+  if (!c.llmBaseUrl) {
+    throw new Error('不知道要把请求发去哪儿：没填 Base URL，而且从模型名「' + c.llmModel
+      + '」也认不出是哪家服务。\n用 llm config --base-url <地址> 指定（DeepSeek 是 https://api.deepseek.com），'
+      + '或把模型名改成常见名字（deepseek-chat / glm-4-flash / qwen-plus …）。')
   }
   const ctrl = new AbortController()
   const timer = setTimeout(() => ctrl.abort(), opts.timeoutMs || REQ_TIMEOUT)
@@ -90,7 +162,7 @@ export async function llmChat(messages, opts = {}) {
     })
     const text = await res.text()
     if (!res.ok) {
-      throw new Error(`LLM ${res.status}：${text.slice(0, 300)}`)
+      throw new Error(explainHttp(res.status, c.llmBaseUrl, text))
     }
     let json
     try { json = JSON.parse(text) } catch { throw new Error(`LLM 返回非 JSON：${text.slice(0, 200)}`) }

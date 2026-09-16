@@ -10,7 +10,7 @@
 [![Trae Ready](https://img.shields.io/badge/Trae-Ready-6c5ce7.svg)](#在-trae-中使用)
 
 - 🧠 **AI Agent 项目**：标准的 Agent 结构（人设 / 工具 / 编排），可直接用 Trae 打开、改、开源。
-- 🔌 **不绑定模型供应商**：模型后端走**标准 OpenAI 兼容接口**（`POST {baseUrl}/chat/completions` + Bearer 鉴权），DeepSeek、火山方舟、OpenAI……任何兼容服务都能接；火山方舟只是 **Base URL 留空时的默认值**。
+- 🔌 **不绑定模型供应商**：模型后端走**标准 OpenAI 兼容接口**（`POST {baseUrl}/chat/completions` + Bearer 鉴权），DeepSeek、火山方舟、OpenAI……任何兼容服务都能接。**Base URL 留空时会按模型名自动识别服务商**（deepseek-chat → DeepSeek、ep-… → 火山方舟、glm-… → 智谱…），认不出来就明确报错让你去填，绝不会偷偷发去别家。
 - 📦 **零依赖**：只用 Node 内置模块，`git clone` 即可运行，无 `npm install`。
 - 🎓 **不是聊天机器人**：有真实的学习闭环——提问 → 判定 → 熟练度 → 间隔复习 → BOSS 战。
 - 🎨 **自带 UI**：原生 HTML/CSS/JS 的 galgame 界面（立绘逐帧动画 / 属性面板 / 战斗浮层）。
@@ -102,7 +102,7 @@ python -m unittest discover -s tests -v    # 19 项自测
 - Node.js **≥ 18**（用到全局 `fetch`）
 - 一个**大模型 API Key**：只要服务提供 **OpenAI 兼容**接口就行，**不绑定任何供应商**。已实测两条路——
   - **DeepSeek**（最省事）：用自己的 DeepSeek Key，模型填 `deepseek-chat`，Base URL 填 `https://api.deepseek.com`
-  - **火山方舟**：在 [火山方舟控制台](https://console.volcengine.com/ark) 创建 API Key，并创建一个**在线推理接入点**拿到 `ep-xxxxxxxx` 形式的接入点 ID；Base URL **留空即可**（这是默认值）
+  - **火山方舟**：在 [火山方舟控制台](https://console.volcengine.com/ark) 创建 API Key，并创建一个**在线推理接入点**拿到 `ep-xxxxxxxx` 形式的接入点 ID；Base URL 可留空（模型名填 `ep-…` 时会自动识别为火山方舟）
   - 其它任何 OpenAI 兼容服务**理论可用**，本项目未逐一实测
 
 > 📖 **不知道这几个值怎么拿？** 看 [`docs/API-KEYS.md`](./docs/API-KEYS.md) —— 有控制台逐步操作（以火山方舟为例）、免费额度说明、报错对照表和安全规范。
@@ -120,7 +120,7 @@ cp .env.example .env
 ```ini
 LLM_API_KEY=你的 API Key
 LLM_MODEL=你的模型名或接入点 ID
-# LLM_BASE_URL 留空 = 默认火山方舟（https://ark.cn-beijing.volces.com/api/v3）
+# LLM_BASE_URL 留空 = 按模型名自动识别服务商（deepseek-chat → DeepSeek，ep-… → 火山方舟）
 # 用别的服务就填它的地址，例如 https://api.deepseek.com
 # （早期版本用的 ARK_API_KEY / ARK_MODEL / ARK_BASE_URL 仍然兼容）
 ```
@@ -168,7 +168,7 @@ npm run smoke      # 引擎 + 检索 + 会话的 12 项离线自测，不联网�
 
 | 区块 | 你做什么 | 效果 |
 |---|---|---|
-| **① 大模型接口** | 填 API Key + 模型 ID（火山方舟填 `ep-…` 接入点 ID，Base URL 可留空） | 让「鲸鱼娘老师」由**你自己的**大模型驱动（任何 OpenAI 兼容服务） |
+| **① 大模型接口** | **选一个服务商**（地址与模型名会自动填好）+ 贴 API Key；没列出你的服务商就选「其它 / 自定义」手填 Base URL | 让「鲸鱼娘老师」由**你自己的**大模型驱动（任何 OpenAI 兼容服务） |
 | **② ima 知识库** | 填 API Key + Client ID → 点**「拉取知识库列表」** | 列出你的知识库；每个旁边有 **「+ 添加为学科」** |
 | **③ 我的学科** | 从 ② 一键添加，或手动输入学科名 | **你的课程表 = 你的知识库** |
 | **④ 我的教材** | 拖拽或选择 `.md` / `.txt` / `.docx` | **连 ima 都不用** —— 老师直接读你的资料出题 |
@@ -354,7 +354,7 @@ node ~/.workbuddy/skills/academic-galgame/scripts/galgame.js panel --port 8790
 | | Trae 版（本仓库主体） | WorkBuddy 版（`workbuddy/`） |
 |---|---|---|
 | 形态 | 完整项目：Node 服务 + Web UI | 两个技能包 |
-| 模型来源 | 用户自带的大模型接口 Key（任何 OpenAI 兼容服务；Base URL 留空则默认火山方舟） | **WorkBuddy 自身模型/积分**（默认），或 `llm config` 填自备 OpenAI 兼容 API |
+| 模型来源 | 用户自带的大模型接口 Key（任何 OpenAI 兼容服务；Base URL 留空则按模型名自动识别） | **WorkBuddy 自身模型/积分**（默认），或 `llm config` 填自备 OpenAI 兼容 API |
 | 资料依据 | 上传教材 + ima 知识库 + 内置 `corpus/` | **ima 知识库（必填）** + 本地教材库（可选），**无内置语料** |
 | 交互 | 浏览器里的 galgame 界面 | **对话 + 本地实时动画面板** |
 | 状态 | 服务端会话内存 | CLI 写 `~/.workbuddy/academic-galgame/save.json` |
@@ -561,7 +561,7 @@ curl -s -X POST http://127.0.0.1:8787/api/chat \
 |---|---|---|---|
 | `LLM_API_KEY` | | — | 大模型接口 API Key（公开部署请留空） |
 | `LLM_MODEL` | | — | 模型名或接入点 ID，如 `deepseek-chat` / `ep-xxxxxxxx`（公开部署请留空） |
-| `LLM_BASE_URL` | | `https://ark.cn-beijing.volces.com/api/v3` | **留空即用这个默认值（火山方舟）**；填任何 OpenAI 兼容地址都行，如 `https://api.deepseek.com` |
+| `LLM_BASE_URL` | | 留空 | 服务端兜底地址。**留空时按模型名自动识别服务商**；填任何 OpenAI 兼容地址都行，如 `https://api.deepseek.com`。注意：访客自带 Key 时**不会**套用这个地址 |
 | `PORT` / `HOST` | | `8787` / `127.0.0.1` | 服务监听（容器部署设 `HOST=0.0.0.0`） |
 | `MAX_SESSIONS` | | `500` | 内存中保留的最大访客会话数 |
 | `GALGAME_CORPUS` | | `./corpus` | 本地教材语料目录（ima 不可用时的依据） |
@@ -596,14 +596,14 @@ Select-String -Path src\**\*.js -Pattern "ark-","sk-" -SimpleMatch   # 源码无
 ## 常见问题
 
 **Q：必须要有火山方舟账号吗？**
-不需要。项目打的是**标准 OpenAI 兼容接口**，**不绑定任何供应商** —— DeepSeek、OpenAI、本地推理服务等任何兼容服务都能接，火山方舟只是 **Base URL 留空时的默认值**。
+不需要。项目打的是**标准 OpenAI 兼容接口**，**不绑定任何供应商** —— DeepSeek、OpenAI、智谱、通义、硅基流动、本地推理服务等都能接。设置面板里直接选服务商即可；Base URL 留空时会按模型名自动识别。
 运行本身也不是必须的（不填任何 Key 就走 DEMO 模式），但要体验真正的 AI 教学，需要一个可用的模型接口 —— 教学与出题由你配置的模型驱动。
 
 **Q：为什么零依赖？**
 降低上手与审计成本：`git clone` 就能跑，也方便你在 Trae 里让 AI 直接读懂全部代码。
 
 **Q：怎么换模型？**
-改 `.env` 里的 `LLM_MODEL` 即可；想换供应商，再把 `LLM_BASE_URL` 一起改（留空 = 默认火山方舟，方舟自身也同时提供多种模型与接入点）。
+改 `.env` 里的 `LLM_MODEL` 即可；想换供应商，再把 `LLM_BASE_URL` 一起改（留空 = 按模型名自动识别）。
 
 **Q：老师怎么知道该教什么？**
 `corpus/` 里放你的教材（`.md` / `.txt`），老师通过 `ag_retrieve` 检索真实内容出题，不会凭空编造。想接你自己的知识库，配置 `IMA_*` 即可。
@@ -618,6 +618,6 @@ Select-String -Path src\**\*.js -Pattern "ark-","sk-" -SimpleMatch   # 源码无
 - 本项目以 **MIT** 协议开源，见 [LICENSE](./LICENSE)。
 - **苏格拉底式提问框架** 迁移自 [Imbad0202/academic-research-skills](https://github.com/Imbad0202/academic-research-skills) 的 `deep-research/references/socratic_questioning_framework.md`（原文备份保留在 `docs/`）。
 - **鲸鱼娘立绘** 来自开源 whale-girl 素材（画师 **ZipZipPipe**，BSD/开源许可），已随项目附带。
-- **模型服务**：本项目**不绑定任何供应商** —— 任何 OpenAI 兼容接口均可接入。已实测 **DeepSeek**（`https://api.deepseek.com` + `deepseek-chat`）与 **火山引擎 · 火山方舟**（Base URL 留空时的默认值 + `ep-…` 接入点）；其它兼容服务理论可用，未逐一实测。
+- **模型服务**：本项目**不绑定任何供应商** —— 任何 OpenAI 兼容接口均可接入。已实测 **DeepSeek**（`https://api.deepseek.com` + `deepseek-chat`，含「只填模型名、不填 Base URL」的自动识别）与 **火山引擎 · 火山方舟**（`ep-…` 接入点）；其余预设按 OpenAI 兼容契约判断可用，未逐一实测。
 
 欢迎 PR：新学科、新题型、更好的提问策略、UI 主题……

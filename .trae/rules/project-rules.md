@@ -11,7 +11,7 @@ alwaysApply: true
 - **运行时**：Node.js ≥ 18，**零运行时依赖**（只用 `node:` 内置模块）。不要引入 express、openai 等第三方包；如需 HTTP 客户端直接用全局 `fetch`。
 - **模块**：源码统一使用 **ES Modules**（`package.json` 中 `"type": "module"`），import 必须带 `.js` 扩展名。
 - **前端**：原生 HTML/CSS/JS（无构建步骤、无框架）。放在 `src/web/`，由 `src/server/server.js` 静态伺服。
-- **模型后端**：统一走**标准 OpenAI 兼容接口**（`POST {baseUrl}/chat/completions` + Bearer 鉴权），经 `src/agent/llm.js` 调用。**不绑定任何供应商**（DeepSeek / 火山方舟 / OpenAI 皆可），火山方舟只是 `LLM_BASE_URL` 留空时的默认值。禁止把 API Key 写进代码。
+- **模型后端**：统一走**标准 OpenAI 兼容接口**（`POST {baseUrl}/chat/completions` + Bearer 鉴权），经 `src/agent/llm.js` 调用。**不绑定任何供应商**（DeepSeek / 火山方舟 / OpenAI 皆可），`LLM_BASE_URL` 留空时会**按模型名自动识别服务商**（deepseek-chat → DeepSeek、ep-… → 火山方舟）；认不出来就明确报错，不会偷偷发去别家。禁止把 API Key 写进代码。
 
 ## 分层规则
 

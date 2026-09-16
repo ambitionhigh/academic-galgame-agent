@@ -21,7 +21,7 @@
 |---|---|---|
 | 运行载体 | 挂在 DSH 组合插件 + 预设内 | 独立 Node 服务 + Web UI，`git clone` 即跑 |
 | 界面 | DSH Client 面板（slot overlay） | 原生 HTML/CSS/JS galgame 界面 |
-| 模型后端 | DSH 会话自带模型 | **任何 OpenAI 兼容接口**（`POST {baseUrl}/chat/completions` + Bearer）；不绑定供应商，Base URL 留空默认火山方舟 |
+| 模型后端 | DSH 会话自带模型 | **任何 OpenAI 兼容接口**（`POST {baseUrl}/chat/completions` + Bearer）；不绑定供应商，Base URL 留空时按模型名自动识别 |
 | 工具形态 | DSH `defineTool` + `ctx.tools.register` | OpenAI function-calling + GM 编排循环 |
 | 检索 | 内置 ima 凭证 | 本地语料 `corpus/`（默认）+ 可选 ima |
 | 依赖 | DSH 运行时 | **零第三方依赖**（Node ≥ 18 内置模块） |
@@ -112,7 +112,7 @@
 
 ## 12. 硬依赖与前提
 
-1. **大模型接口**：`LLM_API_KEY` + `LLM_MODEL`（未配置则 DEMO 模式）。接口为 OpenAI 兼容的 `POST {LLM_BASE_URL}/chat/completions` + Bearer 鉴权，**不绑定供应商**；`LLM_BASE_URL` 留空时默认火山方舟。已实测 DeepSeek 与火山方舟，其它兼容服务理论可用。
+1. **大模型接口**：`LLM_API_KEY` + `LLM_MODEL`（未配置则 DEMO 模式）。接口为 OpenAI 兼容的 `POST {LLM_BASE_URL}/chat/completions` + Bearer 鉴权，**不绑定供应商**；`LLM_BASE_URL` 留空时按模型名自动识别服务商，认不出来则明确报错。已实测 DeepSeek（含自动识别路径）与火山方舟；设置面板内置 DeepSeek / 火山方舟 / Kimi / 智谱 / 通义 / 硅基流动 / OpenAI 七个预设 + 自定义。
 2. **教材来源**：`corpus/` 本地语料（默认）；可选 ima 知识库。
 3. Node.js ≥ 18。
 
@@ -132,4 +132,4 @@
 
 - **v1.1**：初版规格（世界观 / 双轨玩法 / 战斗 / 成长曲线 / 美术 / 存档 / 硬依赖）。
 - **v1.2（2026-08-30）**：战斗系统 + 场景任务落地（60/75/90 解锁链、三个战斗工具、GM 判卷、濒死特训与胜负奖励）。
-- **v2.0（2026-08-31）**：**独立开源版**——抽成零依赖 Node Agent + 大模型后端（OpenAI 兼容，不绑定供应商，默认火山方舟）+ 原生 Web UI；接入 Trae 项目规则/技能；苏格拉底式提问框架由 academic-research-skills 迁移并改编为项目技能。
+- **v2.0（2026-08-31）**：**独立开源版**——抽成零依赖 Node Agent + 大模型后端（OpenAI 兼容，不绑定供应商）+ 原生 Web UI；接入 Trae 项目规则/技能；苏格拉底式提问框架由 academic-research-skills 迁移并改编为项目技能。
