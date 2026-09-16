@@ -170,8 +170,11 @@ function fillForm(c) {
     el.cfgLlmProvider.value = pid
     applyProvider(pid, { fillModel: false })
     // applyProvider 会按预设重置地址与模型名，这里恢复成用户实际保存的值
-    el.cfgLlmBase.value = c.llmBase || ''
     el.cfgLlmModel.value = c.llmModel || ''
+    // 地址：用户填了就用他的；没填但认得出服务商，就把「实际会用的地址」显示出来 ——
+    // 否则会出现「下拉框写着 DeepSeek、地址栏却空着」这种看不懂的状态
+    const preset = providerList.find((p) => p.id === pid)
+    el.cfgLlmBase.value = c.llmBase || (preset && preset.baseUrl) || ''
   }
   el.cfgImaKey.value = c.imaKey || ''
   el.cfgImaClientId.value = c.imaClientId || ''
