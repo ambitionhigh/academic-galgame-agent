@@ -421,6 +421,20 @@ def main():
     print('')
     print('    停止服务：在本窗口按 Ctrl + C')
     print('')
+
+    # 自动打开浏览器（仅在设置了 GALGAME_OPEN=1 时）。
+    # 给「双击启动」这种零输入场景用：省掉「再手动开浏览器、敲地址」这一步。
+    if os.environ.get('GALGAME_OPEN') == '1':
+        import webbrowser
+        open_host = '127.0.0.1' if HOST in ('0.0.0.0', '::', '') else HOST
+        url = 'http://%s:%s' % (open_host, PORT)
+        try:
+            webbrowser.open(url)
+            print('    已尝试为你打开浏览器：%s' % url)
+            print('    （没弹出来的话，手动打开浏览器输入这个地址即可）')
+            print('')
+        except Exception:
+            pass
     try:
         server.serve_forever()
     except KeyboardInterrupt:
