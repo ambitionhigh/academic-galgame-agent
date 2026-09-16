@@ -1,0 +1,14 @@
+# Python 版专属忽略项
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# 运行期数据（存档）
+data/
+*.save.json
+
+# 本地凭证
+.env
+.env.local

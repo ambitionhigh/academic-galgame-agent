@@ -1,0 +1,372 @@
+# -*- coding: utf-8 -*-
+"""零依赖 HTTP 服务：伺服 UI 静态资源 + 提供 /api/* 接口。
+
+【BYOK 自带密钥 + 多用户隔离】
+  · 每位访客一个会话（cookie `gal_sid`）-> 游戏进度互不干扰，服务端不落盘
+  · 模型/知识库凭证由**浏览器**保存（localStorage），每次请求通过 HTTP 头带上：
+      x-ark-key / x-ark-model / x-ark-base
+      x-ima-key / x-ima-client-id / x-ima-kb-map
+    -> 服务端**不存储任何用户凭证**，公开部署时可完全不配 Key
+  · 若服务端自己配了 ARK_*/IMA_* 环境变量，则作为缺省值兜底（适合自托管给自己用）
+
+启动：python run.py      （默认 http://127.0.0.1:8787）
+"""
+
+import json
+import os
+import posixpath
+import threading
+import time
+import urllib.parse
+import uuid
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+from engine.session import GameSession
+from engine.storage import MemoryStorage
+from agent.gm import GameMaster
+from agent.ark import describe_ark, ark_chat
+from agent.retriever import retrieve, test_ima, ima_enabled, list_knowledge_bases
+
+from .env import load_env
+
+load_env()
+
+WEB_ROOT = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                        os.pardir, 'web'))
+PORT = int(os.environ.get('PORT') or 8787)
+HOST = os.environ.get('HOST') or '127.0.0.1'
+MAX_SESSIONS = int(os.environ.get('MAX_SESSIONS') or 500)
+SESSION_TTL_MS = 6 * 60 * 60 * 1000   # 6 小时未活动即回收
+MAX_FILE_CHARS = 400000                # 单个教材文件上限（字符）
+MAX_CORPUS_CHARS = 2000000             # 每位访客上传教材总量上限（字符）
+
+MIME = {
+    '.html': 'text/html; charset=utf-8',
+    '.css': 'text/css; charset=utf-8',
+    '.js': 'text/javascript; charset=utf-8',
+    '.json': 'application/json; charset=utf-8',
+    '.png': 'image/png',
+    '.jpg': 'image/jpeg',
+    '.svg': 'image/svg+xml',
+    '.ico': 'image/x-icon',
+}
+
+# 每位访客的游戏会话（内存）：sid -> {session, gm, corpus, last}
+sessions = {}
+sessions_lock = threading.Lock()
+
+
+def parse_cookies(header):
+    out = {}
+    if not header:
+        return out
+    for part in str(header).split(';'):
+        i = part.find('=')
+        if i < 0:
+            continue
+        out[part[:i].strip()] = urllib.parse.unquote(part[i + 1:].strip())
+    return out
+
+
+def evict_sessions():
+    now = int(time.time() * 1000)
+    for sid in list(sessions.keys()):
+        if now - sessions[sid]['last'] > SESSION_TTL_MS:
+            del sessions[sid]
+    while len(sessions) > MAX_SESSIONS:
+        oldest_sid = min(sessions, key=lambda s: sessions[s]['last'])
+        del sessions[oldest_sid]
+
+
+def creds_from_headers(headers):
+    """从请求头提取用户自带凭证（BYOK）。服务端不持久化这些值。"""
+    out = {}
+
+    def pick(header, field):
+        v = headers.get(header)
+        if isinstance(v, str) and v.strip():
+            out[field] = v.strip()
+
+    def pick_encoded(header, field):
+        v = headers.get(header)
+        if not isinstance(v, str) or not v.strip():
+            return
+        try:
+            out[field] = urllib.parse.unquote(v.strip())
+        except Exception:
+            out[field] = v.strip()
+
+    pick('x-ark-key', 'arkApiKey')
+    pick('x-ark-model', 'arkModel')
+    pick('x-ark-base', 'arkBaseUrl')
+    pick('x-ima-key', 'imaApiKey')
+    pick('x-ima-client-id', 'imaClientId')
+    pick_encoded('x-ima-kb-map', 'imaKbMap')
+    return out
+
+
+def corpus_view(entry):
+    """教材列表视图（不含正文，避免响应过大）。"""
+    files = [{'id': f['id'], 'name': f['name'], 'subject': f.get('subject') or '',
+              'chars': len(f['text'])} for f in entry['corpus']]
+    return {'ok': True, 'files': files,
+            'totalChars': sum(len(f['text']) for f in entry['corpus'])}
+
+
+class Handler(BaseHTTPRequestHandler):
+    server_version = 'academic-galgame-py'
+    protocol_version = 'HTTP/1.1'
+
+    # ── 基础工具 ──
+    def log_message(self, fmt, *args):
+        pass  # 保持输出干净
+
+    def _send(self, code, body, content_type='application/json; charset=utf-8', extra_headers=None):
+        if isinstance(body, str):
+            body = body.encode('utf-8')
+        self.send_response(code)
+        self.send_header('content-type', content_type)
+        self.send_header('content-length', str(len(body)))
+        for k, v in (extra_headers or {}).items():
+            self.send_header(k, v)
+        self.end_headers()
+        if self.command != 'HEAD':
+            self.wfile.write(body)
+
+    def send_json(self, code, data, extra_headers=None):
+        self._send(code, json.dumps(data, ensure_ascii=False), extra_headers=extra_headers)
+
+    def read_body(self, limit=1000000):
+        length = int(self.headers.get('content-length') or 0)
+        if length > limit:
+            raise ValueError('请求体过大')
+        raw = self.rfile.read(length) if length else b''
+        if not raw:
+            return {}
+        return json.loads(raw.decode('utf-8'))
+
+    def session_for(self):
+        """取出（或新建）该访客的会话，必要时下发 cookie。"""
+        sid = parse_cookies(self.headers.get('cookie')).get('gal_sid')
+        with sessions_lock:
+            entry = sessions.get(sid) if sid else None
+            set_cookie = None
+            if not entry:
+                session = GameSession(MemoryStorage())
+                entry = {'session': session, 'gm': GameMaster(session),
+                         'corpus': [], 'last': int(time.time() * 1000)}
+                new_id = str(uuid.uuid4())
+                sessions[new_id] = entry
+                set_cookie = 'gal_sid=%s; Path=/; HttpOnly; SameSite=Lax; Max-Age=86400' % new_id
+                evict_sessions()
+            entry['last'] = int(time.time() * 1000)
+        return entry, set_cookie
+
+    def serve_static(self, pathname):
+        rel = 'index.html' if pathname == '/' else urllib.parse.unquote(pathname).lstrip('/')
+        target = os.path.abspath(os.path.join(WEB_ROOT, os.path.normpath(rel)))
+        if not target.startswith(WEB_ROOT):
+            self._send(403, 'forbidden', 'text/plain; charset=utf-8')
+            return
+        try:
+            with open(target, 'rb') as fh:
+                data = fh.read()
+            ctype = MIME.get(os.path.splitext(target)[1].lower(), 'application/octet-stream')
+            self._send(200, data, ctype)
+        except OSError:
+            self._send(404, '404 not found', 'text/plain; charset=utf-8')
+
+    # ── 路由 ──
+    def dispatch(self):
+        parsed = urllib.parse.urlparse(self.path)
+        pathname = parsed.path
+        query = urllib.parse.parse_qs(parsed.query)
+        method = self.command
+        try:
+            if pathname == '/api/health':
+                server_ark = describe_ark({})
+                creds = creds_from_headers(self.headers)
+                return self.send_json(200, {
+                    'ok': True,
+                    'byok': True,
+                    'arkConfigured': bool(creds.get('arkApiKey') and creds.get('arkModel'))
+                                     if creds.get('arkApiKey') else server_ark['configured'],
+                    'model': creds.get('arkModel') or server_ark['model'] or None,
+                    'imaConfigured': ima_enabled(creds),
+                    'serverPreset': {'ark': server_ark['configured'], 'ima': ima_enabled({})},
+                    'demo': (not (creds.get('arkApiKey') and creds.get('arkModel')))
+                            and not server_ark['configured'],
+                    'sessions': len(sessions),
+                })
+
+            if pathname == '/api/state' and method == 'GET':
+                entry, cookie = self.session_for()
+                return self.send_json(200, entry['session'].status(),
+                                      self._cookie_header(cookie))
+
+            if pathname == '/api/chat' and method == 'POST':
+                body = self.read_body()
+                entry, cookie = self.session_for()
+                result = entry['gm'].say(body.get('message') or '',
+                                         creds_from_headers(self.headers), entry['corpus'])
+                return self.send_json(200, result, self._cookie_header(cookie))
+
+            # ── 用户自带教材（只放本会话内存，不落盘）──
+            if pathname == '/api/corpus' and method == 'GET':
+                entry, cookie = self.session_for()
+                return self.send_json(200, corpus_view(entry), self._cookie_header(cookie))
+
+            if pathname == '/api/corpus' and method == 'POST':
+                body = self.read_body(8000000)
+                entry, cookie = self.session_for()
+                incoming = body.get('files') if isinstance(body.get('files'), list) else []
+                if body.get('replace') is True:
+                    entry['corpus'] = []
+
+                for f in incoming[:30]:
+                    name = str(f.get('name') or '未命名')[:160]
+                    text = str(f.get('text') or '')
+                    if not text.strip():
+                        continue
+                    if len(text) > MAX_FILE_CHARS:
+                        text = text[:MAX_FILE_CHARS]
+                    subject = str(f.get('subject'))[:40] if f.get('subject') else ''
+
+                    # 同名文件视为更新，避免重复上传堆积
+                    existing = next((i for i, x in enumerate(entry['corpus'])
+                                     if x['name'] == name), -1)
+                    item = {'id': str(uuid.uuid4()), 'name': name,
+                            'subject': subject, 'text': text}
+                    if existing >= 0:
+                        item['id'] = entry['corpus'][existing]['id']
+                        entry['corpus'][existing] = item
+                    else:
+                        entry['corpus'].append(item)
+
+                # 总量封顶
+                total = 0
+                kept = []
+                for f in entry['corpus']:
+                    if total >= MAX_CORPUS_CHARS:
+                        break
+                    kept.append(f)
+                    total += len(f['text'])
+                entry['corpus'] = kept
+
+                view = corpus_view(entry)
+                view['truncated'] = total >= MAX_CORPUS_CHARS
+                return self.send_json(200, view, self._cookie_header(cookie))
+
+            # 给单个文件打「学科」标签（空字符串 = 通用教材）
+            if pathname == '/api/corpus' and method == 'PATCH':
+                body = self.read_body()
+                entry, cookie = self.session_for()
+                item = next((f for f in entry['corpus'] if f['id'] == body.get('id')), None)
+                if not item:
+                    return self.send_json(404, {'ok': False, 'error': '未找到该教材文件'},
+                                          self._cookie_header(cookie))
+                item['subject'] = str(body.get('subject'))[:40] if body.get('subject') else ''
+                return self.send_json(200, corpus_view(entry), self._cookie_header(cookie))
+
+            # 删除单个（带 ?id=）或全部
+            if pathname == '/api/corpus' and method == 'DELETE':
+                entry, cookie = self.session_for()
+                file_id = (query.get('id') or [None])[0]
+                if file_id:
+                    entry['corpus'] = [f for f in entry['corpus'] if f['id'] != file_id]
+                else:
+                    entry['corpus'] = []
+                return self.send_json(200, corpus_view(entry), self._cookie_header(cookie))
+
+            # ── ima：列出可用知识库（把「名称」解析成「ID」）──
+            if pathname == '/api/ima/kbs' and method == 'POST':
+                r = list_knowledge_bases(creds_from_headers(self.headers))
+                return self.send_json(200, r)
+
+            if pathname == '/api/reset' and method == 'POST':
+                entry, cookie = self.session_for()
+                entry['gm'].reset()
+                return self.send_json(200, {'ok': True, 'state': entry['session'].status()},
+                                      self._cookie_header(cookie))
+
+            # ── 学科管理：用户可以自主增删（通常按自己的 ima 知识库来建）──
+            if pathname == '/api/subjects' and method == 'POST':
+                body = self.read_body()
+                entry, cookie = self.session_for()
+                r = entry['session'].add_subject(body.get('name'))
+                out = dict(r)
+                out['subjects'] = list(entry['session'].state['subjects'].keys())
+                return self.send_json(200 if r['ok'] else 400, out, self._cookie_header(cookie))
+
+            if pathname == '/api/subjects' and method == 'DELETE':
+                entry, cookie = self.session_for()
+                r = entry['session'].remove_subject((query.get('name') or [''])[0])
+                out = dict(r)
+                out['subjects'] = list(entry['session'].state['subjects'].keys())
+                return self.send_json(200 if r['ok'] else 400, out, self._cookie_header(cookie))
+
+            # 连通性测试：用请求头里的凭证真调一次，判断填得对不对
+            if pathname == '/api/test' and method == 'POST':
+                body = self.read_body()
+                creds = creds_from_headers(self.headers)
+                kind = body.get('kind') or 'ark'
+                if kind == 'ima':
+                    r = test_ima(creds)
+                    return self.send_json(200, {'ok': r.get('ok') is True,
+                                                'kind': 'ima', 'detail': r})
+                if not (creds.get('arkApiKey') and creds.get('arkModel')):
+                    return self.send_json(200, {'ok': False, 'kind': 'ark',
+                                                'error': '请先填写方舟 API Key 与接入点 ID'})
+                try:
+                    r = ark_chat([{'role': 'user', 'content': '只回复两个字：收到'}],
+                                 {'creds': creds, 'temperature': 0, 'timeoutMs': 30000})
+                    return self.send_json(200, {'ok': True, 'kind': 'ark',
+                                                'reply': r['content']})
+                except Exception as err:
+                    return self.send_json(200, {'ok': False, 'kind': 'ark',
+                                                'error': str(err)})
+
+            # ── 静态 UI ──
+            if method in ('GET', 'HEAD'):
+                return self.serve_static(pathname)
+
+            self._send(405, 'method not allowed', 'text/plain; charset=utf-8')
+        except Exception as err:
+            self.send_json(500, {'ok': False, 'error': str(err)})
+
+    @staticmethod
+    def _cookie_header(cookie):
+        return {'set-cookie': cookie} if cookie else None
+
+    def do_GET(self):
+        self.dispatch()
+
+    def do_HEAD(self):
+        self.dispatch()
+
+    def do_POST(self):
+        self.dispatch()
+
+    def do_PATCH(self):
+        self.dispatch()
+
+    def do_DELETE(self):
+        self.dispatch()
+
+
+def main():
+    server = ThreadingHTTPServer((HOST, PORT), Handler)
+    server.daemon_threads = True
+    server_ark = describe_ark({})
+    mode = ('服务端预置方舟（模型：%s）—— 也可由访客自带 Key 覆盖' % server_ark['model']
+            if server_ark['configured']
+            else 'BYOK 模式（服务端未放任何 Key，由每位访客自带凭证）')
+    print('\n  学术galgame Agent（Python · 纯标准库）已启动')
+    print('  → http://%s:%s' % (HOST, PORT))
+    print('  模型来源：%s\n' % mode)
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        print('\n  已停止。')
+    finally:
+        server.server_close()

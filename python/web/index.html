@@ -1,0 +1,176 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>学术galgame · 鲸鱼娘老师</title>
+  <link rel="stylesheet" href="./styles.css" />
+</head>
+<body>
+  <div class="app">
+    <!-- 顶栏 -->
+    <header class="topbar">
+      <div class="brand">
+        <span class="brand-mark">🐋</span>
+        <div>
+          <h1>学术galgame</h1>
+          <p class="brand-sub">鲸鱼娘老师 · 苏格拉底式教学</p>
+        </div>
+      </div>
+      <div class="topbar-right">
+        <span id="mode-badge" class="badge">连接中…</span>
+        <span class="chip">Lv.<b id="level">1</b></span>
+        <button id="settings-btn" class="ghost-btn" title="填写你自己的方舟 / ima 凭证">⚙ 设置</button>
+        <button id="reset-btn" class="ghost-btn" title="重置进度">重置</button>
+      </div>
+    </header>
+
+    <main class="main">
+      <!-- 左：立绘舞台 -->
+      <section class="stage">
+        <div class="sprite-wrap">
+          <div id="sprite" class="sprite" aria-label="鲸鱼娘立绘"></div>
+          <div class="stage-glow"></div>
+        </div>
+        <div class="stage-caption">
+          <span id="whale-mood" class="mood">平静</span>
+          <span id="whale-tier" class="tier">好感档位 0</span>
+        </div>
+      </section>
+
+      <!-- 右：属性面板 -->
+      <aside class="panel">
+        <div class="stat-row">
+          <div class="stat">
+            <div class="stat-head"><span>HP</span><b id="hp-text">100 / 100</b></div>
+            <div class="bar"><i id="hp-bar" class="fill hp"></i></div>
+          </div>
+          <div class="stat">
+            <div class="stat-head"><span>好感度</span><b id="fav-text">0</b></div>
+            <div class="bar"><i id="fav-bar" class="fill fav"></i></div>
+          </div>
+        </div>
+
+        <h2 class="panel-title">学科熟练度
+          <button id="quick-add-subject" class="mini-btn" title="添加学科（建议用你的 ima 知识库名）">＋</button>
+        </h2>
+        <ul id="subjects" class="subjects"></ul>
+
+        <h2 class="panel-title">派生能力</h2>
+        <div id="derived" class="derived"></div>
+
+        <h2 class="panel-title">近期记录</h2>
+        <ul id="log" class="log"></ul>
+      </aside>
+    </main>
+
+    <!-- 底：对话框 -->
+    <section class="dialogue">
+      <div id="messages" class="messages"></div>
+      <form id="chat-form" class="chat-form">
+        <input id="chat-input" type="text" autocomplete="off"
+               placeholder="向鲸鱼娘回答，或说「开始教学 / 复习博弈论 / 挑战领主」…" />
+        <button id="send-btn" type="submit">发送</button>
+      </form>
+      <p class="hint">提示：老师默认用苏格拉底式提问，不会直接给答案。</p>
+    </section>
+  </div>
+
+  <!-- 战斗浮层 -->
+  <div id="battle" class="battle hidden">
+    <div class="battle-card">
+      <div class="enemy-head">
+        <span id="enemy-name" class="enemy-name">魔将</span>
+        <span id="enemy-title" class="enemy-title">错误认知的化身</span>
+      </div>
+      <div class="stat-head"><span>敌方 HP</span><b id="enemy-hp-text">15 / 15</b></div>
+      <div class="bar enemy"><i id="enemy-hp-bar" class="fill enemy-fill"></i></div>
+      <div class="battle-meta">
+        <span id="battle-subject" class="chip">学科</span>
+        <span id="battle-difficulty" class="chip">难度 1</span>
+        <span id="battle-streak" class="chip">连对 0</span>
+      </div>
+      <button id="retreat-btn" class="ghost-btn">撤退</button>
+    </div>
+  </div>
+
+  <!-- 设置面板 · BYOK：凭证只保存在你的浏览器里 -->
+  <div id="settings" class="modal hidden">
+    <div class="modal-card">
+      <div class="modal-head">
+        <h2>⚙ 设置 · 自带密钥</h2>
+        <button id="settings-close" class="ghost-btn">关闭</button>
+      </div>
+
+      <p class="modal-note">
+        🔒 下面填的凭证<b>只保存在你本机浏览器</b>（localStorage），每次请求随 HTTP 头发给本站服务，
+        <b>服务端不存储</b>。所以每个人都可以用<b>自己的</b>方舟与 ima 知识库，学自己的资料。
+        不填也能玩 —— 会自动进入 <b>DEMO 模式</b>。
+      </p>
+
+      <h3>① 火山方舟（大模型 · 老师）<span class="req">必填才能用真模型</span></h3>
+      <label class="field"><span>API Key</span>
+        <input id="cfg-ark-key" type="password" autocomplete="off" placeholder="ark-xxxxxxxx-xxxx-…" /></label>
+      <label class="field"><span>接入点 / 模型 ID</span>
+        <input id="cfg-ark-model" autocomplete="off" placeholder="ep-20250101-xxxxx" /></label>
+      <label class="field"><span>Base URL（可留空）</span>
+        <input id="cfg-ark-base" autocomplete="off" placeholder="https://ark.cn-beijing.volces.com/api/v3" /></label>
+      <div class="test-row">
+        <button id="cfg-test-ark" class="ghost-btn">测试方舟连接</button>
+        <span id="cfg-ark-result" class="test-result"></span>
+      </div>
+
+      <h3>② ima 知识库（你自己的教材 · 可选）</h3>
+      <label class="field"><span>API Key</span>
+        <input id="cfg-ima-key" type="password" autocomplete="off" /></label>
+      <label class="field"><span>Client ID</span>
+        <input id="cfg-ima-client-id" autocomplete="off" /></label>
+      <div class="test-row">
+        <button id="cfg-test-ima" class="ghost-btn">测试 ima 连接</button>
+        <button id="cfg-list-kb" class="ghost-btn">拉取知识库列表</button>
+        <span id="cfg-ima-result" class="test-result"></span>
+      </div>
+
+      <div id="cfg-kb-rows" class="kb-rows">
+        <p class="kb-hint">点「拉取知识库列表」后，这里会列出你的知识库 ——
+          点右侧 <b>「+ 添加为学科」</b> 就能把某个知识库变成一门可学的学科（知识库绑定会自动填好）。</p>
+      </div>
+
+      <details class="adv">
+        <summary>高级：直接编辑「学科 → 知识库」映射 JSON</summary>
+        <textarea id="cfg-ima-kb-map" rows="3" spellcheck="false"
+          placeholder='{"博弈论大学习":"kb-id-1","社会科学":"kb-id-2"}'></textarea>
+      </details>
+
+      <h3>③ 我的学科<span class="req">按你的 ima 知识库来建</span></h3>
+      <div class="test-row">
+        <input id="cfg-new-subject" class="inline-input" placeholder="新学科名，如「博弈论大学习」" />
+        <button id="cfg-add-subject" class="ghost-btn">+ 添加学科</button>
+        <span id="cfg-subject-result" class="test-result"></span>
+      </div>
+      <ul id="cfg-subject-list" class="subject-list"></ul>
+
+      <h3>④ 我的教材（自己的 .md / .txt / .docx · 可选）<span class="req">连 ima 都不用</span></h3>
+      <div id="cfg-drop" class="drop-zone">
+        <input id="cfg-files" type="file" multiple
+          accept=".md,.markdown,.txt,.docx,.pdf,text/plain,text/markdown" />
+        <p>把 <b>.md / .txt / .docx</b> 拖到这里，或点击选择<br />
+          <span class="dim">也接受 <b>.pdf</b>（实验性，扫描件/特殊字体可能失败）· 可多选、可分多次追加<br />
+            同名自动覆盖 · 内容存在本机浏览器，刷新不丢</span></p>
+      </div>
+      <ul id="cfg-file-list" class="file-list"></ul>
+      <div class="test-row">
+        <button id="cfg-clear-files" class="ghost-btn">清空我的教材</button>
+        <span id="cfg-file-result" class="test-result"></span>
+      </div>
+
+      <div class="modal-foot">
+        <button id="cfg-save" class="primary-btn">保存到本机浏览器</button>
+        <button id="cfg-clear" class="ghost-btn">清空凭证</button>
+      </div>
+    </div>
+  </div>
+
+  <script type="module" src="./app.js"></script>
+</body>
+</html>

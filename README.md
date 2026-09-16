@@ -25,6 +25,7 @@
 
 - [它是什么](#它是什么)
 - [快速开始](#快速开始)
+- [🐍 Python 版（纯标准库）](#-python-版纯标准库)
 - [🔑 自带密钥（BYOK）](#-自带密钥byok--每个人学自己的资料)
 - [🌐 在线体验 / 部署](#-在线体验--部署)
 - [在 Trae 中使用](#在-trae-中使用)
@@ -50,6 +51,25 @@
 4. 全科魔王通关 = 称号「研究生」→ 解锁**魔神**（无限血、不可战胜，象征学无止境）。
 
 **学习是硬目标，游戏只是外衣**：数值改动只服务于「真实掌握」。
+
+## 🐍 Python 版（纯标准库）
+
+同一个作品还有一份**纯 Python 实现**，放在 [`python/`](./python/)：
+
+```bash
+cd python
+python run.py                              # 无需 pip install
+python -m unittest discover -s tests -v    # 19 项自测
+```
+
+- **零第三方依赖**：连测试都用 `unittest`（不是 pytest），全项目第三方 `import` 为空；
+- **前端一行未改**：`python/web/` 是本仓库 `src/web/` 的原样复制（SHA256 一致），因为它只走 `/api/*` 契约；
+- **12 项自测逐条对齐** `scripts/smoke.js`，另加 7 项 HTTP 层自测；
+- 沙盒与数值规格与原版逐项一致（`python/engine/config.py` ↔ `src/engine/config.js`）。
+
+> 它不是用来替换本版的，而是为了证明：**这套教学引擎、数值体系与协议契约，不绑定任何语言或运行时**——换语言实现所需改动的只有语法。
+>
+> 能力差异：DSH 组合插件形态与 `workbuddy/` 技能版**不可移植**（分别是 Cordis 与技能宿主体系），详见 [`python/README.md`](./python/README.md)。
 
 ## 快速开始
 
