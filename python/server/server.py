@@ -28,9 +28,10 @@ from agent.gm import GameMaster
 from agent.llm import describe_llm, llm_chat
 from agent.retriever import retrieve, test_ima, ima_enabled, list_knowledge_bases
 
-from .env import load_env
+from .env import load_env, env_path
 
-load_env()
+ENV_FILE = env_path()
+ENV_LOADED = load_env()
 
 WEB_ROOT = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)),
                                         os.pardir, 'web'))
@@ -416,6 +417,7 @@ def main():
     print('')
     print('    请在浏览器打开：  http://%s:%s' % (HOST, PORT))
     print('    模型来源：%s' % mode)
+    print('    配置文件：%s' % (ENV_FILE if ENV_LOADED else '%s（不存在，已跳过）' % ENV_FILE))
     print('')
     print('    停止服务：在本窗口按 Ctrl + C')
     print('')
