@@ -16,3 +16,18 @@ Thumbs.db
 .vscode/*
 !.vscode/extensions.json
 *.log
+
+# 桌面版打包产物（体积大、可重新生成，不进仓库）
+desktop/.wheels/
+desktop/.pylibs/
+desktop/dist/
+desktop/release/
+desktop/build/work/
+desktop/build/*.spec
+desktop/build/pyinstaller.log
+desktop/app.ico
+desktop/.icon-preview-*.png
+
+# download/ 里的成品压缩包是**故意**提交的：
+# 它给不装任何东西的人一条点击即下的链接。要换新版本时覆盖同名文件即可。
+!download/*.zip
