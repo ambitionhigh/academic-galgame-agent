@@ -40,7 +40,7 @@ function extractFunction(src, name) {
   return ''
 }
 
-function loadBuildTurnsFromPanel() {
+function loadPanel() {
   const html = readFileSync(PANEL, 'utf8')
   const m = html.match(/<script>([\s\S]*?)<\/script>/)
   if (!m) throw new Error('面板里没找到 <script>')
@@ -68,6 +68,11 @@ function loadBuildTurnsFromPanel() {
   sandbox.globalThis = sandbox
   vm.createContext(sandbox)
   vm.runInContext(m[1], sandbox)
+  return { sandbox, els }
+}
+
+function loadBuildTurnsFromPanel() {
+  const { sandbox } = loadPanel()
   if (typeof sandbox.buildTurns !== 'function') throw new Error('面板脚本里没有 buildTurns')
   return sandbox.buildTurns
 }
@@ -138,6 +143,29 @@ if (results.length === 2) {
   console.log('\n  ▸ 两处实现是否一致')
   const [a, b] = results.map(([, t]) => JSON.stringify(t))
   check('WorkBuddy 面板 与 网页界面 的回放结果逐字节相同', a === b)
+}
+
+// ── 学习报告的统计口径（这块以前没有测试守着）────────────────
+console.log('\n  ▸ 学习报告的统计口径')
+{
+  const { sandbox, els } = loadPanel()
+  sandbox.renderReport({ game: g })
+
+  // 用已知的六轮算出应有的答案：
+  //   增量 13, 7, -2, 11, 6, 83  →  轮次 6，答对 5，答错 1，净增 118，正确率 83%
+  const grid = (els.get('rep-grid') || {}).innerHTML || ''
+  const subs = (els.get('rep-subjects') || {}).innerHTML || ''
+  const weakHtml = (els.get('rep-weak') || {}).innerHTML || ''
+
+  check(`教学轮次 = 6（页面里是「6 <small>轮</small>」）`, grid.includes('6 <small>轮</small>'))
+  check('判定正确率 = 83%（5 对 / 6 轮，四舍五入）', grid.includes('83<small>%</small>'))
+  check('净增熟练度 = +118（13+7−2+11+6+83）', grid.includes('+118 <small>熟练</small>'))
+  check('累计熟练度 = 118（健康 100 + 博弈论 18）', grid.includes('118 <small>· Lv.'))
+  check('好感度 = 74', grid.includes('74 <small>· 档位'))
+  check('各学科列出博弈论与健康，且各带轮次', subs.includes('博弈论') && subs.includes('健康') && subs.includes('轮 ·'))
+  check('「需要巩固的点」里正是那条答错（且只列 1 条）',
+    weakHtml.includes('答错') && (weakHtml.match(/rep-row/g) || []).length === 1)
+  check('统计窗口写明条数', ((els.get('rep-scope') || {}).textContent || '').includes('最近 6 条记录'))
 }
 
 console.log('\n  ' + '─'.repeat(66))
