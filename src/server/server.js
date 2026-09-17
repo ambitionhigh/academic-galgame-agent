@@ -20,7 +20,8 @@ import { GameSession } from '../engine/session.js'
 import { MemoryStorage } from '../engine/storage.js'
 import { GameMaster } from '../agent/gm.js'
 import { describeLlm, llmChat, PROVIDER_PRESETS } from '../agent/llm.js'
-import { retrieve, testIma, imaEnabled, listKnowledgeBases } from '../agent/retriever.js'
+import * as imaIndex from '../agent/ima_index.js'
+import { retrieve, testIma, imaEnabled, listKnowledgeBases, imaCreds, parseKbMap } from '../agent/retriever.js'
 
 loadEnv()
 
@@ -195,6 +196,47 @@ const server = createServer(async (req, res) => {
     // 服务商预设表：前端下拉框直接用它渲染，避免两版各维护一份
     if (pathname === '/api/providers' && req.method === 'GET') {
       return sendJson(res, 200, { ok: true, providers: PROVIDER_PRESETS })
+    }
+
+    // 建/更新 ima 知识库索引（把书下载下来抽正文）。
+    // 第一次用某个知识库会慢（要下书），所以给个独立入口让用户主动跑，
+    // 而不是每次提问都干等。
+    if (pathname === '/api/ima/index' && (req.method === 'POST' || req.method === 'GET')) {
+      const creds = credsFrom(req)
+      if (!imaEnabled(creds)) {
+        return sendJson(res, 200, { ok: false, error: '请先填写 ima API Key 与 Client ID' })
+      }
+      const kbMap = parseKbMap(creds.imaKbMap || '')
+      let kb = Object.values(kbMap)[0] || ''
+      if (req.method === 'POST') {
+        const body = await readBody(req)
+        if (body && body.kbId) kb = body.kbId
+      }
+      if (!kb) return sendJson(res, 200, { ok: false, error: '还没有给学科绑定知识库' })
+      const { apiKey, clientId } = imaCreds(creds)
+      if (req.method === 'GET') {
+        return sendJson(res, 200, { ok: true, index: imaIndex.indexStatus(kb) })
+      }
+      const body = await readBody(req) || {}
+      let stats
+      try {
+        stats = await imaIndex.buildIndex(kb, apiKey, clientId, {
+          budgetSeconds: Number(body.budget || 240),
+          focus: String(body.focus || ''),
+          forceRelists: Boolean(body.refresh),
+          reset: Boolean(body.reset || body.refresh),
+        })
+      } catch (err) {
+        return sendJson(res, 200, { ok: false, error: String((err && err.message) || err) })
+      }
+      const st = imaIndex.indexStatus(kb)
+      const pending = Math.max(0, st.listed - st.ready - st.unreadable)
+      return sendJson(res, 200, {
+        ok: true, stats, index: st,
+        note: `共 ${st.listed} 个文件，已解析 ${st.ready} 本（${(st.chars / 10000).toFixed(1)} 万字）`
+          + (pending > 0 ? `，还有 ${pending} 个待解析（再点一次继续）` : '')
+          + (st.unreadable ? `；${st.unreadable} 个读不了（扫描版/图片版/网页笔记）` : ''),
+      })
     }
 
     if (pathname === '/api/state' && req.method === 'GET') {

@@ -221,14 +221,21 @@ ima 自己的接口有两个硬限制（实测）：
 - `search_knowledge` **只匹配书名，不搜正文**（`highlight_content` 恒为空）；
 - `get_media_info` 给的是**原始文件**地址 —— 你放 PDF/EPUB，拿到的就是几十 MB 二进制。
 
-所以「让老师读到你书里的内容」需要一整套 **下载 → 抽正文 → 存本机 → 本地全文检索**：
+所以「让老师读到你书里的内容」需要一整套 **下载 → 抽正文 → 存本机 → 本地全文检索**。
+**Node 版、Python 版、WorkBuddy 技能版都已实现**：
 
-| 版本 | 支持情况 |
-|---|---|
-| **Python 版 / Windows 桌面版** | ✅ **已实现**（`python/agent/textract.py` + `ima_index.py`）。设置面板点「把书下载并解析到本地」即可；扫描版 PDF / 图片版 EPUB 会如实说明读不了 |
-| Node 版 / WorkBuddy 技能版 | ⚠️ **暂未实现**。遇到 PDF/EPUB 会**明确报错说读不了**，不会再拿乱码当正文（以前的静默失败正是「抓不到我的书」的来源之一） |
+| 版本 | 模块 | 入口 |
+|---|---|---|
+| Node 版 | `src/agent/textract.js` + `ima_index.js` | `POST /api/ima/index`，或设置面板「把书下载并解析到本地」 |
+| Python 版 / 桌面版 | `python/agent/textract.py` + `ima_index.py` | 同上 |
+| WorkBuddy 技能版 | `scripts/textract.js` + `ima_index.js` | `node galgame.js ima index --subject <学科>` |
 
-> Node 版想读 PDF/EPUB，可以先把书转成 `.md` / `.txt` 再放进知识库，或直接用 Python 版。
+实测（同一个 10 个文件的知识库，两版结果一致）：解析 6 本 = 131.7 万字；
+扫描版 PDF / 图片版 EPUB **会逐本列出书名和原因**，不会假装读过。
+
+> 两份正文抽取实现必须保持一致，否则会出现「桌面版能读、Node 版读不了」这种最难查的问题。
+> 用 `node scripts/check-textract.js <样本目录>` 做跨语言回归 —— 它会比对同一批文件在
+> 两版下的输出（字数 + SHA1），不一致就退出码 1。
 
 
 > **存储位置**：正文存在服务端**本会话内存**（不写磁盘）+ 你浏览器的 IndexedDB（用于刷新恢复）。

@@ -4,11 +4,25 @@
 //   ${GALGAME_HOME:-~/.workbuddy/academic-galgame}/credentials.json
 //   环境变量优先：IMA_API_KEY / IMA_CLIENT_ID / IMA_KB_MAP
 //
+// 【为什么检索要绕这么一圈】
+// ima 自己的 search_knowledge **只匹配标题、不搜正文**（highlight_content 恒为空），
+// 而 get_media_info 给的是 PDF/EPUB **原始文件**（当文本读是乱码）。
+// 所以真正的做法是：列文件 → 下载 → 抽正文 → 存本机 → 本地全文检索
+// —— 这就是同目录下 ima_index.js + textract.js 干的事。
+//
 // 接口（实测）：POST https://ima.qq.com/openapi/wiki/v1/...
-//   get_addable_knowledge_base_list { limit }            → data.addable_knowledge_base_list[{ id, name }]
-//   search_knowledge { knowledge_base_id, query, limit } → data.info_list[{ media_id, title }]
-//   get_media_info { media_id }                          → data.url_info.url（带签名的正文地址）
+//   get_addable_knowledge_base_list { limit }              → data.addable_knowledge_base_list[{ id, name }]
+//   get_knowledge_list { knowledge_base_id, cursor, limit }→ data.knowledge_list[]（media_type=99 是文件夹）
+//   get_media_info { media_id }                            → data.url_info.url（原始文件下载地址）
+//   search_knowledge { knowledge_base_id, query, cursor }  → data.info_list[]（只匹配标题）
+import { join } from 'node:path'
 import { readCredsFile, saveCreds, mask, HOME, CRED_FILE } from './creds.js'
+import * as imaIndex from './ima_index.js'
+
+// 索引缓存放到技能自己的数据目录（下载的书 + 抽出的正文），别留在 skills/ 里
+if (!process.env.GALGAME_IMA_CACHE) {
+  process.env.GALGAME_IMA_CACHE = join(HOME, 'ima-cache')
+}
 
 const HOST = 'ima.qq.com'
 const BASE = '/openapi/wiki/v1'
@@ -101,26 +115,12 @@ export async function resolveKb(nameOrId) {
 /* ══════════ 检索 ══════════ */
 
 /**
- * 下载回来的东西是不是「书」的原始二进制（PDF / EPUB / zip / 图片…）。
- *
- * ima 的 get_media_info 给的是**原始文件**地址。往知识库里放的是 PDF/EPUB 时，
- * 拿到的就是几十 MB 二进制；当文本读只会得到 `%PDF-1.6 %äüöß...` 这种乱码。
- * 把乱码喂给模型等于让它读天书 —— 宁可如实说「读不了」。
- */
-function binaryKind(buf) {
-  const head = buf.subarray(0, 8).toString('latin1')
-  if (head.startsWith('%PDF')) return 'PDF'
-  if (head.startsWith('PK')) return '压缩包（EPUB/Word/Excel）'
-  if (head.startsWith('\x89PNG') || head.startsWith('\xff\xd8\xff') || head.startsWith('GIF8')) return '图片'
-  if (head.startsWith('RIFF')) return '音视频'
-  if (head.startsWith('ID3')) return '音频'
-  const probe = buf.subarray(0, 1024)
-  for (let i = 0; i < probe.length; i++) if (probe[i] === 0) return '二进制文件'
-  return ''
-}
-
-/**
  * 在该学科绑定的 ima 知识库里检索真实片段。
+ *
+ * 做法：先把库里的书下载下来、抽出正文存到本地（索引），再在本地做全文检索 ——
+ * 因为 ima 自己的 search_knowledge 只匹配书名、拿不到书里的内容，
+ * 而 get_media_info 给的是 PDF/EPUB 原始文件，当文本读是乱码。
+ *
  * 未配置 / 未绑定 → 返回 null（交给上层回落到本地教材库）
  */
 export async function retrieveIma(query, subject) {
@@ -130,42 +130,52 @@ export async function retrieveIma(query, subject) {
   const kbId = creds.kbMap[subject] || Object.values(creds.kbMap)[0] || ''
   if (!kbId) return null
 
-  const sj = await imaPost('/search_knowledge', { knowledge_base_id: kbId, query: String(query || ''), cursor: '' }, creds)
-  if (sj.code !== 0) {
-    return { ok: false, source: 'ima', items: [], error: `ima 检索失败 code ${sj.code}：${sj.msg || ''}` }
+  const focus = `${query || ''} ${subject || ''}`
+  let stats
+  try {
+    stats = await imaIndex.buildIndex(kbId, creds.imaApiKey, creds.imaClientId, { focus })
+  } catch (e) {
+    return { ok: false, source: 'ima', items: [], error: `ima 接口报错：${(e && e.message) || e}` }
   }
-  const hits = (sj.data && sj.data.info_list) || []
-  const items = []
-  let unreadable = 0
-  for (const h of hits.slice(0, 2)) {
-    const entry = { title: h.title, source: 'ima', subject: subject || '', content: '' }
-    try {
-      const mj = await imaPost('/get_media_info', { media_id: h.media_id }, creds)
-      const url = mj && mj.data && mj.data.url_info && mj.data.url_info.url
-      if (url) {
-        const buf = Buffer.from(await (await fetch(url)).arrayBuffer())
-        const kind = binaryKind(buf)
-        if (kind) {
-          unreadable++
-          entry.error = `这是 ${kind} 原始文件，要先抽出正文才能读`
-        } else {
-          entry.content = buf.toString('utf8').slice(0, MAX_CHARS)
-        }
-      }
-    } catch (e) {
-      entry.error = String((e && e.message) || e)
-    }
-    items.push(entry)
+
+  const r = imaIndex.searchIndex(kbId, query, subject)
+  const base = { source: 'ima', subject: subject || '', indexed: r.indexed, total: r.total, kbId }
+  if (r.ok) {
+    return { ...base, ok: true, count: r.items.length, items: r.items,
+             via: '本地全文检索（已下载并解析你的书）' }
   }
-  const usable = items.filter((x) => x.content)
-  if (!usable.length && unreadable) {
-    return {
-      ok: false, source: 'ima', count: hits.length, items: [],
-      error: `知识库里的《${(items[0] && items[0].title) || '这本书'}》是 PDF/EPUB 原始文件，技能包还没做正文抽取`,
-      hint: 'ima 自己的搜索只匹配书名，拿不到书里的内容。'
-        + '要么把书转成 .md / .txt 再放进知识库，要么用带正文抽取的版本'
-        + '（academic-galgame-agent 的 Python 版已实现：python/agent/textract.py + ima_index.py）。',
-    }
+
+  let why
+  if (!r.indexed && !r.total) why = '这个知识库里没列出任何文件'
+  else if (!r.indexed) {
+    why = `知识库里有 ${r.total} 个文件，但一个都没能解析出正文`
+      + `（${(stats.notes || []).join('；') || '见索引状态'}）`
+  } else why = `已在 ${r.indexed} 本书里全文检索，没有和「${query || subject || ''}」相关的内容`
+  return { ...base, ok: false, count: 0, items: [], error: why,
+           hint: `知识库状态：已解析 ${r.indexed} 本 / 共 ${r.total} 个文件` }
+}
+
+/** 建/补索引（给 `ima index` 命令用）。第一次慢，之后走缓存。 */
+export async function indexKnowledgeBase(opts = {}) {
+  const creds = loadCreds()
+  if (!creds.imaApiKey || !creds.imaClientId) {
+    return { ok: false, error: '未配置 ima 凭证：先运行 ima config --key <API Key> --client-id <Client ID>' }
   }
-  return { ok: usable.length > 0, source: 'ima', count: hits.length, items: usable.slice(0, MAX_SECTIONS) }
+  const kbId = (opts.subject && creds.kbMap[opts.subject]) || Object.values(creds.kbMap)[0] || ''
+  if (!kbId) return { ok: false, error: '还没有绑定知识库：先 ima add-subject --kb "<知识库名>"' }
+
+  const stats = await imaIndex.buildIndex(kbId, creds.imaApiKey, creds.imaClientId, {
+    budgetSeconds: opts.budget || 300,
+    focus: opts.focus || '',
+    reset: Boolean(opts.reset),
+    forceRelists: Boolean(opts.reset),
+  })
+  const st = imaIndex.indexStatus(kbId)
+  const pending = Math.max(0, st.listed - st.ready - st.unreadable)
+  return {
+    ok: true, stats, index: st,
+    note: `共 ${st.listed} 个文件，已解析 ${st.ready} 本（${(st.chars / 10000).toFixed(1)} 万字）`
+      + (pending > 0 ? `，还有 ${pending} 个待解析（再跑一次继续）` : '')
+      + (st.unreadable ? `；${st.unreadable} 个读不了（扫描版/图片版/网页笔记）` : ''),
+  }
 }

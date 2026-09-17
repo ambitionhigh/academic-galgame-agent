@@ -35,6 +35,8 @@ chmod +x install.sh && ./install.sh
 │   │   ├── panel.js           # 实时动画面板服务（零依赖 HTTP，与 CLI 共用存档）
 │   │   ├── materials.js       # 教材库：导入 / 列表 / 学科标注 / 检索
 │   │   ├── ima.js             # ima 知识库：凭证 / 列库 / 绑定 / 检索（必填项）
+│   │   ├── ima_index.js       # 知识库索引：下载书 → 抽正文 → 本地缓存 → 全文检索
+│   │   ├── textract.js        # 从 PDF/EPUB/Word/HTML 抽正文（纯 Node，零依赖）
 │   │   ├── llm.js             # LLM：自备 OpenAI 兼容 API + 判分（可选项）
 │   │   ├── creds.js           # 本地凭证读写（ima 与 LLM 共用一份，权限 0600）
 │   │   ├── extract.js         # 文本提取（.md/.txt/.docx/.pdf，零依赖）
@@ -381,3 +383,4 @@ Remove-Item "$HOME\.workbuddy\academic-galgame" -Recurse -Force
 |---|---|---|---|
 | **引擎** | `src/engine/` | `scripts/engine/` | `config.js` / `game.js` / `battle.js`（`storage.js`/`session.js` 是服务端专用，不进技能包） |
 | **立绘** | `src/web/assets/whale-girl/` | `assets/whale-girl/` | 全部 PNG（15 张，约 2.25 MB） |
+| **取文** | `src/agent/` | `scripts/` | `textract.js` / `ima_index.js`（ima 取文模块，技能包必须自带一份） |

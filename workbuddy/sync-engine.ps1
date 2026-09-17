@@ -26,6 +26,14 @@ $groups = @(
     Src   = Join-Path $repoRoot 'src\web\assets\whale-girl'
     Dst   = Join-Path $skill 'assets\whale-girl'
     Files = $null
+  },
+  @{
+    # ima 取文模块：技能包必须自带一份（技能要自包含），靠这里保持与主项目一致。
+    # 改主项目后跑一次本脚本即可，别手抄。
+    Name  = '取文'
+    Src   = Join-Path $repoRoot 'src\agent'
+    Dst   = Join-Path $skill 'scripts'
+    Files = @('textract.js', 'ima_index.js')
   }
 )
 

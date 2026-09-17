@@ -22,7 +22,7 @@ import { createState, migrateState, statusView, applyTeaching, addSubject, remov
 import { battleView, startBattle, applyBattle, checkUnlock } from './engine/battle.js'
 import { ENEMY_DEFS } from './engine/config.js'
 import { listMaterials, addMaterial, removeMaterial, setMaterialSubject, clearMaterials, retrieve, materialsDir } from './materials.js'
-import { loadCreds, saveCreds, credsStatus, listKbs, resolveKb, retrieveIma, CRED_FILE } from './ima.js'
+import { loadCreds, saveCreds, credsStatus, listKbs, resolveKb, retrieveIma, indexKnowledgeBase, CRED_FILE } from './ima.js'
 import { loadLlm, saveLlm, llmStatus, testLlm, judgeAnswer, DEFAULT_BASE, DEFAULT_MODEL } from './llm.js'
 
 const SAVE = process.env.GALGAME_SAVE
@@ -418,6 +418,19 @@ async function main() {
           emit({ cmd: `${cmd} ${sub}`, ok: false, connected: false, error: String((e && e.message) || e) })
           process.exitCode = 1
         }
+        return
+      }
+
+      // 把知识库里的书下载下来、抽出正文存到本机 —— 之后检索才是真的在读书
+      if (sub === 'index') {
+        const r = await indexKnowledgeBase({
+          subject: typeof a.subject === 'string' ? a.subject : '',
+          budget: num(a.budget) || 300,
+          focus: typeof a.focus === 'string' ? a.focus : '',
+          reset: Boolean(a.reset),
+        })
+        emit({ cmd: `${cmd} ${sub}`, ...r })
+        if (!r.ok) process.exitCode = 1
         return
       }
 

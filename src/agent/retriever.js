@@ -7,6 +7,8 @@
 import { readdirSync, readFileSync, existsSync, statSync } from 'node:fs'
 import { join, resolve, extname } from 'node:path'
 
+import * as imaIndex from './ima_index.js'
+
 const CORPUS_DIR = resolve(process.env.GALGAME_CORPUS || join(process.cwd(), 'corpus'))
 const MAX_SECTIONS = 3
 const MAX_CHARS = 1200
@@ -122,7 +124,7 @@ export function localCorpusRetrieve(query, subject) {
 /* ══════════ ima 知识库 ══════════ */
 
 /** 解析 ima 凭证（请求优先，环境变量兜底） */
-function imaCreds(creds = {}) {
+export function imaCreds(creds = {}) {
   return {
     apiKey: creds.imaApiKey || process.env.IMA_API_KEY || '',
     clientId: creds.imaClientId || process.env.IMA_CLIENT_ID || '',
@@ -134,92 +136,64 @@ export function parseKbMap(raw) {
   try { return typeof raw === 'string' ? JSON.parse(raw || '{}') : (raw || {}) } catch { return {} }
 }
 
-/** ima 开放接口 POST */
+/** ima 开放接口 POST（走带限流退避的公共实现，避免一密就 200001） */
 async function imaPost(path, body, creds = {}) {
   const { apiKey, clientId } = imaCreds(creds)
-  const res = await fetch(`https://${IMA_HOST}${IMA_BASE}${path}`, {
-    method: 'POST',
-    headers: {
-      'content-type': 'application/json',
-      'ima-openapi-clientid': clientId,
-      'ima-openapi-apikey': apiKey,
-    },
-    body: JSON.stringify(body || {}),
-  })
-  return await res.json()
+  return await imaIndex.imaPost(path, body, apiKey, clientId)
 }
 
-/** ② ima 知识库内检索；未配置或没有可用知识库时返回 null */
 /**
- * 判断下载回来的东西是不是「书」的原始二进制（PDF / EPUB / zip / 图片…）。
+ * 在 ima 知识库里检索**正文**。
  *
- * ima 的 get_media_info 给的是**原始文件**地址。往知识库里放的是 PDF/EPUB 时，
- * 拿到的就是几十 MB 二进制；当文本读只会得到 `%PDF-1.6 %äüöß...` 这种乱码。
- * 把乱码喂给模型等于让它读天书 —— 宁可如实说「读不了」，也不能假装读到了。
+ * 做法：先用索引器把库里还没下载的书下下来、抽出正文存到本地，
+ * 再在本地做真正的全文检索 —— 因为 ima 自己的 search_knowledge 只匹配标题，
+ * 书里的内容它搜不到，而且它给的是 PDF/EPUB 原始文件，当文本读是乱码。
+ *
+ * 未配置 / 没绑定知识库时返回 null（交给上层回落到内置语料）。
  */
-function binaryKind(buf) {
-  const b = buf.subarray(0, 8)
-  const hex = Buffer.from(b).toString('latin1')
-  if (hex.startsWith('%PDF')) return 'PDF'
-  if (hex.startsWith('PK')) return '压缩包（EPUB/Word/Excel）'
-  if (hex.startsWith('\x89PNG')) return '图片'
-  if (hex.startsWith('\xff\xd8\xff')) return '图片'
-  if (hex.startsWith('GIF8')) return '图片'
-  if (hex.startsWith('RIFF')) return '音视频'
-  if (hex.startsWith('ID3')) return '音频'
-  // 出现 NUL 字节基本可以断定不是文本
-  const probe = buf.subarray(0, 1024)
-  for (let i = 0; i < probe.length; i++) if (probe[i] === 0) return '二进制文件'
-  return ''
-}
-
 async function imaRetrieve(query, subject, creds = {}) {
   const { apiKey, clientId } = imaCreds(creds)
   const map = parseKbMap(creds.imaKbMap || process.env.IMA_KB_MAP || '')
   const kb = map[subject] || Object.values(map)[0] || creds.imaKb || process.env.IMA_KB || ''
   if (!apiKey || !clientId || !kb) return null
 
-  const sj = await imaPost('/search_knowledge', { knowledge_base_id: kb, query: String(query || ''), cursor: '' }, creds)
-  if (sj.code !== 0) return { ok: false, apiOk: false, source: 'ima', items: [], error: sj.msg }
-  const hits = (sj.data && sj.data.info_list) || []
-  const items = []
-  let unreadable = 0
-  for (const h of hits.slice(0, 2)) {
-    const entry = { title: h.title, source: 'ima', content: '' }
-    try {
-      const mj = await imaPost('/get_media_info', { media_id: h.media_id }, creds)
-      const url = mj && mj.data && mj.data.url_info && mj.data.url_info.url
-      if (url) {
-        const buf = Buffer.from(await (await fetch(url)).arrayBuffer())
-        const kind = binaryKind(buf)
-        if (kind) {
-          // 是原始文件，不是文本 —— 明确说清楚，不把乱码当正文
-          unreadable++
-          entry.error = `这是一本 ${kind} 原始文件，需要先抽出正文才能读`
-        } else {
-          entry.content = buf.toString('utf8').slice(0, MAX_CHARS)
-        }
-      }
-    } catch (e) {
-      entry.error = String((e && e.message) || e)
-    }
-    items.push(entry)
+  const focus = `${query || ''} ${subject || ''}`
+  let stats
+  try {
+    stats = await imaIndex.buildIndex(kb, apiKey, clientId, { focus })
+  } catch (e) {
+    return { ok: false, apiOk: false, source: 'ima', items: [],
+             error: `ima 接口报错：${(e && e.message) || e}` }
   }
-  const usable = items.filter((x) => x.content)
-  if (!usable.length && unreadable) {
-    return {
-      ok: false, apiOk: true, source: 'ima', count: hits.length, items: [],
-      error: `知识库里的《${items[0].title || '这本书'}》是 PDF/EPUB 原始文件，Node 版还没做正文抽取`,
-      hint: 'ima 自己的搜索只匹配书名、拿不到书里内容。需要「下载原始文件 → 抽取正文 → 本地检索」'
-        + '这一整套（Python 版已实现，见 python/agent/textract.py 与 ima_index.py）。'
-        + '要么改用 Python 版 / Windows 桌面版，要么把书转成 .md / .txt 再放进知识库。',
-    }
+
+  const r = imaIndex.searchIndex(kb, query, subject)
+  const base = { source: 'ima', indexed: r.indexed, total: r.total, kbId: kb, indexStats: stats }
+
+  if (r.ok) {
+    return { ...base, ok: true, apiOk: true, count: r.items.length, items: r.items,
+             via: '本地全文检索（已下载并解析你的书）' }
   }
-  return { ok: usable.length > 0, apiOk: true, source: 'ima', count: hits.length, items: usable }
+
+  // 没命中 —— 如实说明卡在哪一步，便于用户自己判断
+  let why
+  if (!r.indexed && !r.total) why = '这个知识库里没列出任何文件'
+  else if (!r.indexed) {
+    why = `知识库里有 ${r.total} 个文件，但一个都没能解析出正文`
+      + `（${(stats.notes || []).join('；') || '见索引状态'}）`
+  } else why = `已在 ${r.indexed} 本书里全文检索，没有和「${query || subject || ''}」相关的内容`
+
+  return { ...base, ok: false, apiOk: true, count: 0, items: [], error: why,
+           hint: `知识库状态：已解析 ${r.indexed} 本 / 共 ${r.total} 个文件` }
 }
 
 /**
  * 统一检索入口（按优先级回落）。
+ *
+ * ⚠️ 一个刻意的行为：**配了 ima 时，绝不静默换成项目内置的示例语料**。
+ * 以前会默默回落，于是用户以为老师在讲自己的书，其实讲的是仓库里的两篇示例 ——
+ * 这正是「抓不到我放在知识库里的书」这个感受的来源之一。
+ * 现在回落时会带上 note 说明「这不是你的资料」，让模型如实告诉用户。
+ *
  * @param {string} query 查询词
  * @param {string} [subject] 学科
  * @param {object} [creds] 本次请求携带的凭证
@@ -231,13 +205,31 @@ export async function retrieve(query, subject, creds = {}, uploads = []) {
     const r = sessionCorpusRetrieve(query, subject, uploads)
     if (r.ok) return r
   }
-  // ② ima 知识库
-  try {
-    const viaIma = await imaRetrieve(query, subject, creds)
-    if (viaIma && viaIma.ok !== false) return viaIma
-    if (viaIma && viaIma.ok === false && viaIma.apiOk === false) return viaIma // 接口报错，如实返回
-  } catch { /* 回落 */ }
-  // ③ 内置语料
+
+  // ② ima 知识库（配了才走，且不再无声回落）
+  if (imaEnabled(creds)) {
+    let viaIma = null
+    try {
+      viaIma = await imaRetrieve(query, subject, creds)
+    } catch (e) {
+      viaIma = { ok: false, apiOk: false, source: 'ima', items: [], error: String((e && e.message) || e) }
+    }
+    if (viaIma) {
+      if (viaIma.ok) return viaIma
+      const local = localCorpusRetrieve(query, subject)
+      if (local.ok) {
+        local.fallbackFrom = 'ima'
+        local.note = '⚠️ 以下内容**不是**你的资料，而是项目内置的示例语料。'
+          + `你的 ima 知识库没给出结果，原因：${viaIma.error || '该知识库里没有匹配内容'}。`
+          + '请如实告诉用户这一点，不要假装引用了他的书。'
+        return local
+      }
+      viaIma.hint = `${viaIma.hint || ''}；内置示例语料里也没有相关内容`
+      return viaIma
+    }
+  }
+
+  // ③ 没配 ima：用内置语料
   return localCorpusRetrieve(query, subject)
 }
 
@@ -273,25 +265,38 @@ export async function listKnowledgeBases(creds = {}) {
   }
 }
 
-/** 直接用给定凭证测一次 ima 检索（给 UI 的「测试连接」按钮用；不回落到本地语料）
- *  判定标准：接口能正常应答即算连通（命中 0 条只是该测试词没匹配到，不算失败）。 */
+/**
+ * 测一次 ima：列出知识库 + 真正开始建索引（给 UI 的「测试连接」用）。
+ *
+ * 判定标准：能列出知识库就算连通。如果绑了知识库，顺带报告「已解析几本 / 共几个文件」，
+ * 以及哪些文件读不了、为什么 —— 这些信息对排查「抓不到我的书」最关键。
+ */
 export async function testIma(creds = {}) {
   if (!imaEnabled(creds)) {
     return { ok: false, error: '未填写 ima API Key 或 Client ID' }
   }
-  try {
-    const r = await imaRetrieve('纳什均衡', undefined, creds)
-    if (!r) return { ok: false, error: '未指定知识库：请先「拉取知识库列表」并给学科选择知识库' }
-    if (r.apiOk === false) return { ok: false, error: r.error || 'ima 接口返回错误' }
-    return {
-      ...r,
-      ok: true,
-      count: r.count || 0,
-      note: (r.count || 0) > 0
-        ? `连接正常，命中 ${r.count} 条`
-        : '连接正常（该测试词暂无命中，可换关键词再试）',
-    }
-  } catch (e) {
-    return { ok: false, error: String((e && e.message) || e) }
+  const kbs = await listKnowledgeBases(creds)
+  if (!kbs.ok) return { ok: false, error: kbs.error || '拉不到知识库列表' }
+
+  const out = { ok: true, kbs: kbs.items.length, names: kbs.items.slice(0, 12).map((k) => k.name) }
+  const { apiKey, clientId } = imaCreds(creds)
+  const map = parseKbMap(creds.imaKbMap || process.env.IMA_KB_MAP || '')
+  const kb = Object.values(map)[0] || ''
+  if (!kb) {
+    out.note = `连接正常，列出 ${kbs.items.length} 个知识库。还没给学科绑定知识库 —— 绑定后我才能读里面的书。`
+    return out
   }
+  try {
+    await imaIndex.buildIndex(kb, apiKey, clientId, { budgetSeconds: 25 })
+  } catch (e) {
+    out.note = `连接正常，但建索引失败：${(e && e.message) || e}`
+    return out
+  }
+  const st = imaIndex.indexStatus(kb)
+  const pending = st.listed - st.ready - st.unreadable
+  out.index = st
+  out.note = `连接正常。知识库共 ${st.listed} 个文件，已解析 ${st.ready} 本（${(st.chars / 10000).toFixed(1)} 万字）`
+    + (pending > 0 ? `，还有 ${pending} 个待解析（下次提问会继续）` : '')
+    + (st.unreadable ? `；有 ${st.unreadable} 个读不了（多为扫描版/图片版/网页笔记），详见 index.unreadable_detail` : '')
+  return out
 }

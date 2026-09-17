@@ -91,6 +91,7 @@ node $SKILL panel --port 8790        # 长驻进程 → 必须在后台运行
 node $SKILL ima status                                        # 是否已配置（Key 打码显示）
 node $SKILL ima config --key <API Key> --client-id <Client ID> # 保存凭证（只存本机，权限 0600）
 node $SKILL ima test                                          # 连通性自检
+node $SKILL ima index --subject 健康                            # ★ 把知识库里的书下载并解析到本地（第一次慢，之后秒回）
 node $SKILL ima kbs                                           # 列出用户的知识库（名称 → ID）
 node $SKILL ima add-subject --kb "博弈论大学习"                 # ★ 一键把知识库变成学科并绑定
 node $SKILL ima bind --subject 博弈论 --kb "博弈论大学习"        # 给已有学科绑定知识库
