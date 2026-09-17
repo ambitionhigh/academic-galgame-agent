@@ -240,6 +240,42 @@ html, body {
 .test-result.ok { color: var(--green); }
 .test-result.err { color: var(--red); }
 .test-result.pending { color: var(--muted); }
+
+/* ── 学习报告 / 回合回放 ── */
+.rep-note { font-size: 11px; color: var(--muted); font-weight: 400; margin-left: 6px; }
+.rep-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+@media (max-width: 620px) { .rep-grid { grid-template-columns: repeat(2, 1fr); } }
+.rep-cell {
+  border: 1px solid var(--line); border-radius: 9px; padding: 8px 10px;
+  background: rgba(0, 0, 0, 0.22);
+}
+.rep-cell .k { font-size: 11px; color: var(--muted); }
+.rep-cell .v { font-size: 16px; margin-top: 3px; color: var(--text); }
+.rep-cell .v small { font-size: 11px; color: var(--muted); }
+.rep-row {
+  display: flex; align-items: center; gap: 9px; font-size: 12.5px;
+  padding: 5px 0; border-bottom: 1px dashed rgba(120, 220, 255, 0.12);
+}
+.rep-row .n { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rep-row .v { color: var(--muted); font-size: 11.5px; }
+.rep-empty { font-size: 12px; color: var(--muted); padding: 4px 0; }
+.rep-bar { height: 4px; border-radius: 999px; background: rgba(255, 255, 255, 0.08); margin: 2px 0 6px; overflow: hidden; }
+.rep-bar i { display: block; height: 100%; background: linear-gradient(90deg, var(--cyan-dim), var(--cyan)); }
+
+.replay-card {
+  border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px;
+  background: rgba(0, 0, 0, 0.22); min-height: 84px;
+}
+.replay-card .rp-who { font-size: 11.5px; color: var(--cyan); margin-bottom: 5px; }
+.replay-card .rp-note-body { font-size: 12.5px; line-height: 1.6; color: var(--text); }
+.replay-card .rp-deltas { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
+.rp-d { font-size: 11.5px; padding: 1px 8px; border-radius: 999px; border: 1px solid var(--line); color: var(--muted); }
+.rp-d.up { color: var(--green); border-color: rgba(110, 231, 168, 0.4); }
+.rp-d.down { color: var(--red); border-color: rgba(255, 107, 129, 0.4); }
+.replay-card .rp-snap { font-size: 11.5px; color: var(--muted); margin-top: 8px; line-height: 1.7; }
+.replay-card .rp-snap b { color: var(--text); }
+.rp-track { height: 5px; border-radius: 999px; background: rgba(255, 255, 255, 0.08); margin-top: 10px; overflow: hidden; }
+.rp-track i { display: block; height: 100%; width: 0; background: linear-gradient(90deg, var(--cyan-dim), var(--cyan)); transition: width 0.25s; }
 .modal-foot { display: flex; gap: 10px; margin-top: 6px; }
 .primary-btn {
   padding: 9px 18px; border-radius: 10px; border: none; cursor: pointer;

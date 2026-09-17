@@ -93,6 +93,54 @@
   @keyframes shake{0%,100%{transform:translateX(0)}20%{transform:translateX(-6px)}40%{transform:translateX(5px)}60%{transform:translateX(-3px)}80%{transform:translateX(2px)}}
 
   .hint{font-size:11px;color:var(--muted);text-align:center}
+
+  /* ── 视图切换：实时学科 / 回合回放 / 学习报告 ── */
+  .tabs{display:flex;gap:6px;margin-top:4px}
+  .tabs button{
+    flex:1; padding:6px 8px; font-size:12px; cursor:pointer; font-family:inherit;
+    border:1px solid var(--line); border-radius:8px; background:rgba(0,0,0,.22); color:var(--muted);
+  }
+  .tabs button.on{color:var(--text); border-color:var(--cyan-dim); background:rgba(87,224,255,.12)}
+  .pane{display:none}
+  .pane.on{display:block; animation:riseIn .3s ease}
+
+  /* ── 回合回放 ── */
+  .replay-ctl{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:8px}
+  .replay-ctl button{
+    padding:5px 10px; font-size:12px; cursor:pointer; font-family:inherit; color:var(--text);
+    border:1px solid var(--line); border-radius:8px; background:rgba(0,0,0,.25);
+  }
+  .replay-ctl button:hover{border-color:var(--cyan-dim)}
+  .replay-ctl button:disabled{opacity:.35;cursor:default}
+  .replay-pos{font-size:11.5px;color:var(--muted);margin-left:auto}
+  .replay-card{
+    border:1px solid var(--line); border-radius:10px; padding:9px 11px; background:rgba(0,0,0,.22);
+    min-height:74px;
+  }
+  .replay-card .who{font-size:11.5px;color:var(--cyan);margin-bottom:5px}
+  .replay-card .note{font-size:12.5px;line-height:1.6}
+  .replay-card .deltas{display:flex;gap:6px;flex-wrap:wrap;margin-top:7px}
+  .d{font-size:11.5px;padding:1px 8px;border-radius:999px;border:1px solid var(--line)}
+  .d.up{color:var(--green);border-color:rgba(110,231,168,.4)}
+  .d.down{color:var(--red);border-color:rgba(255,107,129,.4)}
+  .replay-snap{font-size:11.5px;color:var(--muted);margin-top:7px;line-height:1.7}
+  .replay-snap b{color:var(--text)}
+  .track{height:5px;border-radius:999px;background:rgba(255,255,255,.08);margin:9px 0 0;overflow:hidden}
+  .track i{display:block;height:100%;background:linear-gradient(90deg,var(--cyan-dim),var(--cyan));width:0;transition:width .25s}
+
+  /* ── 学习报告 ── */
+  .rep-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:7px;margin-bottom:9px}
+  .rep-cell{border:1px solid var(--line);border-radius:9px;padding:7px 9px;background:rgba(0,0,0,.2)}
+  .rep-cell .k{font-size:10.5px;color:var(--muted)}
+  .rep-cell .v{font-size:15px;margin-top:2px}
+  .rep-cell .v small{font-size:11px;color:var(--muted)}
+  .rep-title{font-size:11.5px;color:var(--cyan);margin:9px 0 5px}
+  .rep-row{display:flex;align-items:center;gap:8px;font-size:12px;padding:4px 0;border-bottom:1px dashed rgba(120,220,255,.12)}
+  .rep-row .n{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .rep-row .v{color:var(--muted);font-size:11.5px}
+  .rep-empty{font-size:11.5px;color:var(--muted)}
+  .rep-note{font-size:10.5px;color:var(--muted);font-weight:400;margin-left:6px}
+  .bar.slim{height:4px;margin-top:3px}
   @media(max-width:760px){ main{grid-template-columns:1fr} .sprite{transform:scale(.78)} }
 </style>
 </head>
@@ -138,11 +186,46 @@
         </div>
       </div>
 
-      <h2 class="title">学科熟练度</h2>
-      <ul id="subjects"></ul>
+      <div class="tabs">
+        <button id="tab-live" class="on">学科</button>
+        <button id="tab-replay">回合回放</button>
+        <button id="tab-report">学习报告</button>
+      </div>
 
-      <h2 class="title">近期记录</h2>
-      <ul class="log" id="log"></ul>
+      <div class="pane on" id="pane-live">
+        <h2 class="title">学科熟练度</h2>
+        <ul id="subjects"></ul>
+        <h2 class="title">近期记录</h2>
+        <ul class="log" id="log"></ul>
+      </div>
+
+      <div class="pane" id="pane-replay">
+        <h2 class="title">回合回放<span class="rep-note" id="replay-scope"></span></h2>
+        <div class="replay-ctl">
+          <button id="rp-first" title="回到最早">⏮</button>
+          <button id="rp-prev">上一步</button>
+          <button id="rp-play">▶ 播放</button>
+          <button id="rp-next">下一步</button>
+          <button id="rp-last" title="跳到最新">⏭</button>
+          <span class="replay-pos" id="rp-pos">—</span>
+        </div>
+        <div class="replay-card" id="rp-card">
+          <div class="who" id="rp-who">还没有可回放的回合</div>
+          <div class="note" id="rp-note">先让鲸鱼娘考你一题，这里就会出现回放。</div>
+          <div class="deltas" id="rp-deltas"></div>
+          <div class="replay-snap" id="rp-snap"></div>
+        </div>
+        <div class="track"><i id="rp-track"></i></div>
+      </div>
+
+      <div class="pane" id="pane-report">
+        <h2 class="title">学习报告<span class="rep-note" id="rep-scope"></span></h2>
+        <div class="rep-grid" id="rep-grid"></div>
+        <div class="rep-title">各学科</div>
+        <div id="rep-subjects"></div>
+        <div class="rep-title">需要巩固的点</div>
+        <div id="rep-weak"></div>
+      </div>
     </section>
   </main>
 
@@ -252,8 +335,186 @@ function render(d){
   }
 
   prev.hp = g.player.hp; prev.fav = g.whale.favorability; prev.level = g.level
+
+  // 回放 / 报告：只在对应视图打开时才算，省得每次轮询都白做一遍
+  lastState = d
+  if (activeTab === 'pane-replay') rpRebuild(d)
+  else if (activeTab === 'pane-report') renderReport(d)
 }
 function esc(s){ return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])) }
+
+/* ══════════ 视图切换 ══════════ */
+const TABS = [['tab-live','pane-live'], ['tab-replay','pane-replay'], ['tab-report','pane-report']]
+let activeTab = 'pane-live'
+for (const [tabId, paneId] of TABS) {
+  $(tabId).addEventListener('click', () => {
+    activeTab = paneId
+    for (const [t, p] of TABS) {
+      $(t).classList.toggle('on', p === paneId)
+      $(p).classList.toggle('on', p === paneId)
+    }
+    if (paneId === 'pane-replay') rpRebuild(lastState)
+    if (paneId === 'pane-report') renderReport(lastState)
+  })
+}
+
+/* ══════════ 回合回放 ══════════
+ *
+ * 每轮结算时引擎会在日志里记下**实际生效的增量**（mastery/favor/hp，已考虑 clamp）。
+ * 于是可以反推：某一轮之前的值 = 当前值 − 这一轮之后所有增量之和。
+ * 从可见窗口的最早一轮往前推、再逐轮正推，就能逐步重现每一轮结束时的数值。
+ *
+ * 注意这是「最近 N 轮」的回放：日志上限 50 条、面板取 40 条，
+ * 更早的历史没有被记录，所以基线是「N 轮之前」，界面上会写清楚。
+ */
+let lastState = null
+const rp = { turns: [], idx: 0, timer: null, scope: 0 }
+
+function buildTurns(g) {
+  const hist = (g.history && g.history.length ? g.history : (g.log || [])).slice()
+  const turns = hist.reverse()                       // 日志是新→旧，回放要旧→新
+  // 反推基线
+  const base = { fav: g.whale.favorability, hp: g.player.hp, sub: {} }
+  for (const [n, v] of Object.entries(g.subjects || {})) base.sub[n] = v.mastery
+  for (const t of turns) {
+    if (t.subject && typeof t.mastery === 'number') base.sub[t.subject] = (base.sub[t.subject] ?? 0) - t.mastery
+    if (typeof t.favor === 'number') base.fav -= t.favor
+    if (typeof t.hp === 'number') base.hp -= t.hp
+  }
+  // 正推，记下每一轮结束时的快照
+  const snap = { fav: base.fav, hp: base.hp, sub: { ...base.sub } }
+  return turns.map((t) => {
+    if (t.subject && typeof t.mastery === 'number') snap.sub[t.subject] = (snap.sub[t.subject] ?? 0) + t.mastery
+    if (typeof t.favor === 'number') snap.fav += t.favor
+    if (typeof t.hp === 'number') snap.hp += t.hp
+    return { ...t, after: { fav: snap.fav, hp: snap.hp, sub: { ...snap.sub } } }
+  })
+}
+
+function rpRebuild(g) {
+  if (!g) return
+  const atLatest = rp.idx >= rp.turns.length - 1 || !rp.turns.length
+  rp.turns = buildTurns(g)
+  rp.idx = rp.turns.length ? (atLatest ? rp.turns.length - 1 : Math.min(rp.idx, rp.turns.length - 1)) : 0
+  $('replay-scope').textContent = rp.turns.length
+    ? `最近 ${rp.turns.length} 轮（更早的没有记录，回放不出来）` : ''
+  rpDraw()
+}
+
+function rpDraw() {
+  const n = rp.turns.length
+  const has = n > 0
+  for (const id of ['rp-first', 'rp-prev', 'rp-play', 'rp-next', 'rp-last']) $(id).disabled = !has
+  if (!has) {
+    $('rp-pos').textContent = '—'
+    $('rp-track').style.width = '0%'
+    return
+  }
+  const t = rp.turns[Math.min(rp.idx, n - 1)]
+  $('rp-pos').textContent = `第 ${rp.idx + 1} / ${n} 轮`
+  $('rp-track').style.width = Math.round((rp.idx + 1) / n * 100) + '%'
+
+  const when = t.at ? new Date(t.at).toLocaleTimeString('zh-CN', { hour12: false }) : ''
+  $('rp-who').textContent = (t.subject ? `[${t.subject}] ` : '') + when
+  $('rp-note').textContent = t.note || '(无备注)'
+
+  const ds = []
+  if (typeof t.mastery === 'number' && t.mastery !== 0) {
+    ds.push(`<span class="d ${t.mastery > 0 ? 'up' : 'down'}">熟练度 ${t.mastery > 0 ? '+' : ''}${t.mastery}</span>`)
+  }
+  if (typeof t.favor === 'number' && t.favor !== 0) {
+    ds.push(`<span class="d ${t.favor > 0 ? 'up' : 'down'}">好感 ${t.favor > 0 ? '+' : ''}${t.favor}</span>`)
+  }
+  if (typeof t.hp === 'number' && t.hp !== 0) {
+    ds.push(`<span class="d ${t.hp > 0 ? 'up' : 'down'}">HP ${t.hp > 0 ? '+' : ''}${t.hp}</span>`)
+  }
+  if (t.mood) ds.push(`<span class="d">心情 ${MOOD[t.mood] || t.mood}</span>`)
+  $('rp-deltas').innerHTML = ds.join('') || '<span class="d">这一轮没有数值变化</span>'
+
+  const a = t.after
+  const subs = Object.entries(a.sub).filter(([, v]) => v > 0)
+    .sort((x, y) => y[1] - x[1]).slice(0, 3)
+    .map(([k, v]) => `${esc(k)} <b>${v}</b>`).join(' · ')
+  $('rp-snap').innerHTML = `这一轮结束时：${subs || '（各科都是 0）'} ｜ 好感 <b>${a.fav}</b> ｜ HP <b>${a.hp}</b>`
+}
+
+function rpStop() { if (rp.timer) { clearInterval(rp.timer); rp.timer = null } $('rp-play').textContent = '▶ 播放' }
+$('rp-first').onclick = () => { rpStop(); rp.idx = 0; rpDraw() }
+$('rp-prev').onclick = () => { rpStop(); rp.idx = Math.max(0, rp.idx - 1); rpDraw() }
+$('rp-next').onclick = () => { rpStop(); rp.idx = Math.min(rp.turns.length - 1, rp.idx + 1); rpDraw() }
+$('rp-last').onclick = () => { rpStop(); rp.idx = rp.turns.length - 1; rpDraw() }
+$('rp-play').onclick = () => {
+  if (rp.timer) { rpStop(); return }
+  if (!rp.turns.length) return
+  if (rp.idx >= rp.turns.length - 1) rp.idx = 0     // 已到末尾就从头放
+  $('rp-play').textContent = '⏸ 暂停'
+  rpDraw()
+  rp.timer = setInterval(() => {
+    if (rp.idx >= rp.turns.length - 1) { rpStop(); return }
+    rp.idx++; rpDraw()
+  }, 900)
+}
+
+/* ══════════ 学习报告 ══════════ */
+function fmtSpan(ms) {
+  const m = Math.round(ms / 60000)
+  if (m < 1) return '不到 1 分钟'
+  if (m < 60) return m + ' 分钟'
+  return Math.floor(m / 60) + ' 小时 ' + (m % 60) + ' 分'
+}
+
+function renderReport(d) {
+  if (!d) return
+  const g = d.game
+  const hist = (g.history && g.history.length ? g.history : (g.log || []))
+  const rounds = hist.filter((t) => typeof t.mastery === 'number' || typeof t.favor === 'number')
+  const good = rounds.filter((t) => (t.mastery || 0) > 0)
+  const weak = rounds.filter((t) => (t.mastery || 0) < 0)
+  const gain = rounds.reduce((s, t) => s + (t.mastery || 0), 0)
+
+  const stamps = hist.map((t) => t.at).filter(Boolean).sort()
+  const span = stamps.length > 1 ? stamps[stamps.length - 1] - stamps[0] : 0
+
+  const rate = rounds.length ? Math.round(good.length / rounds.length * 100) : 0
+  const cells = [
+    ['教学轮次', `${rounds.length} <small>轮</small>`],
+    ['判定正确率', rounds.length ? `${rate}<small>%</small>` : '—'],
+    ['累计熟练度', `${g.totalMastery} <small>· Lv.${g.level}</small>`],
+    ['好感度', `${g.whale.favorability} <small>· 档位 ${g.whaleTier}</small>`],
+    ['这窗口的净增', `${gain >= 0 ? '+' : ''}${gain} <small>熟练</small>`],
+    ['记录跨度', span ? fmtSpan(span) : '—'],
+  ]
+  $('rep-grid').innerHTML = cells.map(([k, v]) =>
+    `<div class="rep-cell"><div class="k">${k}</div><div class="v">${v}</div></div>`).join('')
+
+  // 各学科：熟练度 + 窗口内轮次 / 净增
+  const per = {}
+  for (const t of rounds) {
+    if (!t.subject) continue
+    const p = per[t.subject] || (per[t.subject] = { n: 0, gain: 0 })
+    p.n++; p.gain += (t.mastery || 0)
+  }
+  const names = Object.keys(g.subjects || {}).sort((a, b) => (g.subjects[b].mastery) - (g.subjects[a].mastery))
+  $('rep-subjects').innerHTML = names.map((n) => {
+    const v = g.subjects[n]
+    const p = per[n] || { n: 0, gain: 0 }
+    const q = v.quest || {}
+    return `<div class="rep-row"><span class="n">${esc(n)}${v.conquered ? ' ★' : ''}</span>`
+      + `<span class="v">${p.n} 轮 · ${p.gain >= 0 ? '+' : ''}${p.gain}</span>`
+      + `<span class="v" style="width:64px;text-align:right">${v.mastery}/100</span></div>`
+      + `<div class="bar slim"><i class="fill sub" style="width:${v.mastery}%"></i></div>`
+      + `<div class="rep-row" style="border:0;padding-top:2px"><span class="n" style="font-size:11px;color:var(--muted)">`
+      + `领主${q.lord ? '✓' : '✗'} · 魔将${q.general ? '✓' : '✗'} · 魔王${v.conquered ? '✓' : '✗'}</span></div>`
+  }).join('') || '<div class="rep-empty">还没有学科</div>'
+
+  // 需要巩固：这一窗口里判为「没掌握」的那些轮
+  $('rep-weak').innerHTML = weak.length
+    ? weak.slice(-8).reverse().map((t) =>
+        `<div class="rep-row"><span class="n">${t.subject ? `<span class="s">[${esc(t.subject)}]</span> ` : ''}${esc(t.note)}</span>`
+        + `<span class="v">${t.mastery}</span></div>`).join('')
+    : '<div class="rep-empty">这个窗口里没有判定失败的回合 —— 保持住。</div>'
+  $('rep-scope').textContent = `统计窗口：最近 ${hist.length} 条记录`
+}
 
 async function poll(){
   try {

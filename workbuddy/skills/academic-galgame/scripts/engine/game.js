@@ -91,9 +91,20 @@ export function derivedAttributes(state) {
   return out
 }
 
-/** 写一条日志（保留最近 50 条） */
-export function logNote(state, note, subject = null) {
-  state.log.unshift({ at: Date.now(), note, subject })
+/**
+ * 写一条日志（保留最近 50 条）。
+ *
+ * extra 用来记录「这一轮到底改了什么数值」—— 面板的回合回放要靠它才能
+ * 逐步重现熟练度/好感的变化，否则只有一句文字说明，回放不出来。
+ */
+export function logNote(state, note, subject = null, extra = null) {
+  const entry = { at: Date.now(), note, subject }
+  if (extra) {
+    for (const [k, v] of Object.entries(extra)) {
+      if (v !== undefined && v !== null) entry[k] = v
+    }
+  }
+  state.log.unshift(entry)
   if (state.log.length > 50) state.log.pop()
 }
 
@@ -108,21 +119,29 @@ export function setMood(state, name) {
  * @param {{subject?:string, masteryDelta?:number, favorabilityDelta?:number, hpDelta?:number, mood?:string, note?:string}} args
  */
 export function applyTeaching(state, args = {}) {
+  const applied = {}                     // 实际生效的增量（会被 clamp 影响）
   if (args.subject) {
     if (!state.subjects[args.subject]) state.subjects[args.subject] = newSubject()
     if (typeof args.masteryDelta === 'number') {
       const sub = state.subjects[args.subject]
+      const before = sub.mastery
       sub.mastery = clamp(sub.mastery + args.masteryDelta, 0, 100)
+      applied.mastery = sub.mastery - before
     }
   }
   if (typeof args.favorabilityDelta === 'number') {
+    const before = state.whale.favorability
     state.whale.favorability = clamp(state.whale.favorability + args.favorabilityDelta, 0, 100)
+    applied.favor = state.whale.favorability - before
   }
   if (typeof args.hpDelta === 'number') {
+    const before = state.player.hp
     state.player.hp = clamp(state.player.hp + args.hpDelta, 0, state.player.maxHp)
+    applied.hp = state.player.hp - before
   }
   setMood(state, args.mood)
-  logNote(state, args.note || '教学结算', args.subject || null)
+  if (args.mood) applied.mood = args.mood
+  logNote(state, args.note || '教学结算', args.subject || null, applied)
   return statusView(state)
 }
 
@@ -160,7 +179,9 @@ export function statusView(state, battle = null) {
     totalMastery: totalMastery(state),
     derived: derivedAttributes(state),
     subjects: state.subjects,
+    // log 保持 8 条（界面上「近期记录」用的），history 给回放/学习报告用更多
     log: state.log.slice(0, 8),
+    history: state.log.slice(0, 40),
     demonUnlocked: demonUnlocked(state),
     demonTries: state.demonTries || 0,
     imageKey: imgKey,

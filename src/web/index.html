@@ -20,6 +20,7 @@
       <div class="topbar-right">
         <span id="mode-badge" class="badge">连接中…</span>
         <span class="chip">Lv.<b id="level">1</b></span>
+        <button id="report-btn" class="ghost-btn" title="看学习报告 / 回放每一轮">📊 报告</button>
         <button id="settings-btn" class="ghost-btn" title="填写你自己的大模型 / ima 凭证">⚙ 设置</button>
         <button id="reset-btn" class="ghost-btn" title="重置进度">重置</button>
       </div>
@@ -182,6 +183,47 @@
       <div class="modal-foot">
         <button id="cfg-save" class="primary-btn">保存到本机浏览器</button>
         <button id="cfg-clear" class="ghost-btn">清空凭证</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 学习报告 / 回合回放 -->
+  <div id="report" class="modal hidden">
+    <div class="modal-card">
+      <div class="modal-head">
+        <h2>📊 学习报告</h2>
+        <button id="report-close" class="ghost-btn">关闭</button>
+      </div>
+      <p class="modal-note" id="report-scope">统计窗口：—</p>
+
+      <h3>总览</h3>
+      <div class="rep-grid" id="report-grid"></div>
+
+      <h3>各学科</h3>
+      <div id="report-subjects"></div>
+
+      <h3>需要巩固的点<span class="rep-note">这一窗口里判定为「没掌握」的回合</span></h3>
+      <div id="report-weak"></div>
+
+      <h3>回合回放<span class="rep-note" id="replay-scope"></span></h3>
+      <p class="modal-note">
+        每轮结算时引擎会记下**实际生效**的数值变化，所以这里可以逐步重现每一轮结束时的熟练度与好感。
+        只回放最近这些轮 —— 更早的没有记录。
+      </p>
+      <div class="test-row">
+        <button id="rp-first" class="ghost-btn" title="回到最早">⏮ 最早</button>
+        <button id="rp-prev" class="ghost-btn">上一步</button>
+        <button id="rp-play" class="ghost-btn">▶ 播放</button>
+        <button id="rp-next" class="ghost-btn">下一步</button>
+        <button id="rp-last" class="ghost-btn" title="跳到最新">最新 ⏭</button>
+        <span class="test-result" id="rp-pos">—</span>
+      </div>
+      <div class="replay-card">
+        <div class="rp-who" id="rp-who">还没有可回放的回合</div>
+        <div class="rp-note-body" id="rp-note">先让鲸鱼娘考你一题，这里就会出现回放。</div>
+        <div class="rp-deltas" id="rp-deltas"></div>
+        <div class="rp-snap" id="rp-snap"></div>
+        <div class="rp-track"><i id="rp-track"></i></div>
       </div>
     </div>
   </div>

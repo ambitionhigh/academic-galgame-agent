@@ -42,6 +42,14 @@ const el = {
   cfgFiles: $('cfg-files'), cfgFileList: $('cfg-file-list'), cfgDrop: $('cfg-drop'),
   cfgClearFiles: $('cfg-clear-files'), cfgFileResult: $('cfg-file-result'),
   cfgSave: $('cfg-save'), cfgClear: $('cfg-clear'),
+  // 学习报告 / 回合回放
+  report: $('report'), reportBtn: $('report-btn'), reportClose: $('report-close'),
+  reportScope: $('report-scope'), reportGrid: $('report-grid'),
+  reportSubjects: $('report-subjects'), reportWeak: $('report-weak'),
+  replayScope: $('replay-scope'), rpFirst: $('rp-first'), rpPrev: $('rp-prev'),
+  rpPlay: $('rp-play'), rpNext: $('rp-next'), rpLast: $('rp-last'), rpPos: $('rp-pos'),
+  rpWho: $('rp-who'), rpNote: $('rp-note'), rpDeltas: $('rp-deltas'),
+  rpSnap: $('rp-snap'), rpTrack: $('rp-track'),
 }
 
 let busy = false
@@ -203,6 +211,8 @@ function setSprite(key, frames = 1) {
 /* ── 渲染属性面板 ── */
 function renderState(s) {
   if (!s) return
+  lastState = s                       // 报告/回放要用完整历史
+  if (el.report && !el.report.classList.contains('hidden')) renderReport(s)
   el.level.textContent = s.level
   el.hpText.textContent = `${s.player.hp} / ${s.player.maxHp}`
   el.hpBar.style.width = `${Math.round((s.player.hp / s.player.maxHp) * 100)}%`
@@ -351,6 +361,140 @@ async function openSettings() {
   await loadCorpus()
 }
 function closeSettings() { el.modal.classList.add('hidden') }
+
+/* ══════════ 学习报告 / 回合回放 ══════════
+ *
+ * 每轮结算时引擎会在日志里记下**实际生效的增量**（mastery/favor/hp，已考虑 clamp）。
+ * 于是可以反推：某一轮之前的值 = 当前值 − 这一轮之后所有增量之和。
+ * 从可见窗口最早一轮往前推、再逐轮正推，就能逐步重现每一轮结束时的数值。
+ * 界面上会写明这是「最近 N 轮」的回放 —— 更早的没有被记录。
+ */
+let lastState = null
+const rp = { turns: [], idx: 0, timer: null }
+
+function buildTurns(g) {
+  const hist = (g.history && g.history.length ? g.history : (g.log || [])).slice()
+  const turns = hist.reverse()                       // 日志是新→旧，回放要旧→新
+  const base = { fav: g.whale.favorability, hp: g.player.hp, sub: {} }
+  for (const [n, v] of Object.entries(g.subjects || {})) base.sub[n] = v.mastery
+  for (const t of turns) {
+    if (t.subject && typeof t.mastery === 'number') base.sub[t.subject] = (base.sub[t.subject] ?? 0) - t.mastery
+    if (typeof t.favor === 'number') base.fav -= t.favor
+    if (typeof t.hp === 'number') base.hp -= t.hp
+  }
+  const snap = { fav: base.fav, hp: base.hp, sub: { ...base.sub } }
+  return turns.map((t) => {
+    if (t.subject && typeof t.mastery === 'number') snap.sub[t.subject] = (snap.sub[t.subject] ?? 0) + t.mastery
+    if (typeof t.favor === 'number') snap.fav += t.favor
+    if (typeof t.hp === 'number') snap.hp += t.hp
+    return { ...t, after: { fav: snap.fav, hp: snap.hp, sub: { ...snap.sub } } }
+  })
+}
+
+function rpStop() {
+  if (rp.timer) { clearInterval(rp.timer); rp.timer = null }
+  el.rpPlay.textContent = '▶ 播放'
+}
+
+function rpDraw() {
+  const n = rp.turns.length
+  for (const b of [el.rpFirst, el.rpPrev, el.rpPlay, el.rpNext, el.rpLast]) b.disabled = !n
+  if (!n) { el.rpPos.textContent = '—'; el.rpTrack.style.width = '0%'; return }
+  const t = rp.turns[Math.min(rp.idx, n - 1)]
+  el.rpPos.textContent = `第 ${rp.idx + 1} / ${n} 轮`
+  el.rpTrack.style.width = Math.round((rp.idx + 1) / n * 100) + '%'
+  const when = t.at ? new Date(t.at).toLocaleTimeString('zh-CN', { hour12: false }) : ''
+  el.rpWho.textContent = (t.subject ? `[${t.subject}] ` : '') + when
+  el.rpNote.textContent = t.note || '(无备注)'
+
+  const ds = []
+  if (typeof t.mastery === 'number' && t.mastery !== 0) {
+    ds.push(`<span class="rp-d ${t.mastery > 0 ? 'up' : 'down'}">熟练度 ${t.mastery > 0 ? '+' : ''}${t.mastery}</span>`)
+  }
+  if (typeof t.favor === 'number' && t.favor !== 0) {
+    ds.push(`<span class="rp-d ${t.favor > 0 ? 'up' : 'down'}">好感 ${t.favor > 0 ? '+' : ''}${t.favor}</span>`)
+  }
+  if (typeof t.hp === 'number' && t.hp !== 0) {
+    ds.push(`<span class="rp-d ${t.hp > 0 ? 'up' : 'down'}">HP ${t.hp > 0 ? '+' : ''}${t.hp}</span>`)
+  }
+  if (t.mood) ds.push(`<span class="rp-d">心情 ${MOOD_LABEL[t.mood] || t.mood}</span>`)
+  el.rpDeltas.innerHTML = ds.join('') || '<span class="rp-d">这一轮没有数值变化</span>'
+
+  const a = t.after
+  const subs = Object.entries(a.sub).filter(([, v]) => v > 0)
+    .sort((x, y) => y[1] - x[1]).slice(0, 3)
+    .map(([k, v]) => `${escapeHtml(k)} <b>${v}</b>`).join(' · ')
+  el.rpSnap.innerHTML = `这一轮结束时：${subs || '（各科都是 0）'} ｜ 好感 <b>${a.fav}</b> ｜ HP <b>${a.hp}</b>`
+}
+
+function rpRebuild(g) {
+  const atLatest = !rp.turns.length || rp.idx >= rp.turns.length - 1
+  rp.turns = buildTurns(g)
+  rp.idx = rp.turns.length ? (atLatest ? rp.turns.length - 1 : Math.min(rp.idx, rp.turns.length - 1)) : 0
+  el.replayScope.textContent = rp.turns.length ? `最近 ${rp.turns.length} 轮` : ''
+  rpDraw()
+}
+
+function fmtSpan(ms) {
+  const m = Math.round(ms / 60000)
+  if (m < 1) return '不到 1 分钟'
+  if (m < 60) return m + ' 分钟'
+  return `${Math.floor(m / 60)} 小时 ${m % 60} 分`
+}
+
+function renderReport(s) {
+  if (!s) return
+  const hist = (s.history && s.history.length ? s.history : (s.log || []))
+  const rounds = hist.filter((t) => typeof t.mastery === 'number' || typeof t.favor === 'number')
+  const good = rounds.filter((t) => (t.mastery || 0) > 0)
+  const weak = rounds.filter((t) => (t.mastery || 0) < 0)
+  const gain = rounds.reduce((n, t) => n + (t.mastery || 0), 0)
+  const stamps = hist.map((t) => t.at).filter(Boolean).sort()
+  const span = stamps.length > 1 ? stamps[stamps.length - 1] - stamps[0] : 0
+  const rate = rounds.length ? Math.round(good.length / rounds.length * 100) : 0
+
+  el.reportScope.textContent = `统计窗口：最近 ${hist.length} 条记录`
+  el.reportGrid.innerHTML = [
+    ['教学轮次', `${rounds.length} <small>轮</small>`],
+    ['判定正确率', rounds.length ? `${rate}<small>%</small>` : '—'],
+    ['累计熟练度', `${s.totalMastery} <small>· Lv.${s.level}</small>`],
+    ['好感度', `${s.whale.favorability} <small>· 档位 ${s.whaleTier}</small>`],
+    ['净增熟练度', `${gain >= 0 ? '+' : ''}${gain} <small>（本窗口）</small>`],
+    ['记录跨度', span ? fmtSpan(span) : '—'],
+  ].map(([k, v]) => `<div class="rep-cell"><div class="k">${k}</div><div class="v">${v}</div></div>`).join('')
+
+  const per = {}
+  for (const t of rounds) {
+    if (!t.subject) continue
+    const p = per[t.subject] || (per[t.subject] = { n: 0, gain: 0 })
+    p.n++; p.gain += (t.mastery || 0)
+  }
+  const names = Object.keys(s.subjects || {}).sort((a, b) => s.subjects[b].mastery - s.subjects[a].mastery)
+  el.reportSubjects.innerHTML = names.map((n) => {
+    const v = s.subjects[n]
+    const p = per[n] || { n: 0, gain: 0 }
+    const q = v.quest || {}
+    return `<div class="rep-row"><span class="n">${escapeHtml(n)}${v.conquered ? ' ★' : ''}</span>`
+      + `<span class="v">${p.n} 轮 · ${p.gain >= 0 ? '+' : ''}${p.gain}</span>`
+      + `<span class="v" style="width:70px;text-align:right">${v.mastery}/100</span></div>`
+      + `<div class="rep-bar"><i style="width:${v.mastery}%"></i></div>`
+      + `<div class="rep-empty" style="padding:0 0 6px">领主${q.lord ? '✓' : '✗'} · 魔将${q.general ? '✓' : '✗'} · 魔王${v.conquered ? '✓' : '✗'}</div>`
+  }).join('') || '<div class="rep-empty">还没有学科</div>'
+
+  el.reportWeak.innerHTML = weak.length
+    ? weak.slice(-8).reverse().map((t) =>
+        `<div class="rep-row"><span class="n">${t.subject ? `<span class="s">[${escapeHtml(t.subject)}]</span> ` : ''}${escapeHtml(t.note)}</span>`
+        + `<span class="v">${t.mastery}</span></div>`).join('')
+    : '<div class="rep-empty">这个窗口里没有判定失败的回合 —— 保持住。</div>'
+
+  rpRebuild(s)
+}
+
+function openReport() {
+  renderReport(lastState)
+  el.report.classList.remove('hidden')
+}
+function closeReport() { rpStop(); el.report.classList.add('hidden') }
 
 function showResult(node, state, msg) {
   node.className = `test-result ${state}`
@@ -709,6 +853,24 @@ el.reset.addEventListener('click', async () => {
 el.retreat.addEventListener('click', () => sendMessage('撤退'))
 
 el.settings.addEventListener('click', openSettings)
+el.reportBtn.addEventListener('click', openReport)
+el.reportClose.addEventListener('click', closeReport)
+el.report.addEventListener('click', (e) => { if (e.target === el.report) closeReport() })
+el.rpFirst.addEventListener('click', () => { rpStop(); rp.idx = 0; rpDraw() })
+el.rpPrev.addEventListener('click', () => { rpStop(); rp.idx = Math.max(0, rp.idx - 1); rpDraw() })
+el.rpNext.addEventListener('click', () => { rpStop(); rp.idx = Math.min(rp.turns.length - 1, rp.idx + 1); rpDraw() })
+el.rpLast.addEventListener('click', () => { rpStop(); rp.idx = rp.turns.length - 1; rpDraw() })
+el.rpPlay.addEventListener('click', () => {
+  if (rp.timer) { rpStop(); return }
+  if (!rp.turns.length) return
+  if (rp.idx >= rp.turns.length - 1) rp.idx = 0
+  el.rpPlay.textContent = '⏸ 暂停'
+  rpDraw()
+  rp.timer = setInterval(() => {
+    if (rp.idx >= rp.turns.length - 1) { rpStop(); return }
+    rp.idx++; rpDraw()
+  }, 900)
+})
 el.modalClose.addEventListener('click', closeSettings)
 el.modal.addEventListener('click', (e) => { if (e.target === el.modal) closeSettings() })
 el.cfgSave.addEventListener('click', async () => {

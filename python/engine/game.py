@@ -117,9 +117,18 @@ def derived_attributes(state):
     return out
 
 
-def log_note(state, note, subject=None):
-    """写一条日志（保留最近 50 条）。"""
-    state['log'].insert(0, {'at': now_ms(), 'note': note, 'subject': subject})
+def log_note(state, note, subject=None, extra=None):
+    """写一条日志（保留最近 50 条）。
+
+    extra 用来记录「这一轮到底改了什么数值」—— 面板的回合回放要靠它才能
+    逐步重现熟练度/好感的变化，否则只有一句文字说明，回放不出来。
+    """
+    entry = {'at': now_ms(), 'note': note, 'subject': subject}
+    if extra:
+        for k, v in extra.items():
+            if v is not None:
+                entry[k] = v
+    state['log'].insert(0, entry)
     if len(state['log']) > 50:
         state['log'].pop()
 
@@ -134,20 +143,30 @@ def apply_teaching(state, args=None):
     """教学/答题结算（非战斗）。原地修改 state，返回结算后的可读摘要。"""
     args = args or {}
     subject = args.get('subject')
+    applied = {}                      # 实际生效的增量（会被 clamp 影响）
+
     if subject:
         if subject not in state['subjects']:
             state['subjects'][subject] = new_subject()
         if is_num(args.get('masteryDelta')):
             sub = state['subjects'][subject]
+            before = sub['mastery']
             sub['mastery'] = clamp(sub['mastery'] + args['masteryDelta'], 0, 100)
+            applied['mastery'] = sub['mastery'] - before
     if is_num(args.get('favorabilityDelta')):
+        before = state['whale']['favorability']
         state['whale']['favorability'] = clamp(
             state['whale']['favorability'] + args['favorabilityDelta'], 0, 100)
+        applied['favor'] = state['whale']['favorability'] - before
     if is_num(args.get('hpDelta')):
+        before = state['player']['hp']
         state['player']['hp'] = clamp(
             state['player']['hp'] + args['hpDelta'], 0, state['player']['maxHp'])
+        applied['hp'] = state['player']['hp'] - before
     set_mood(state, args.get('mood'))
-    log_note(state, args.get('note') or '教学结算', subject or None)
+    if args.get('mood'):
+        applied['mood'] = args['mood']
+    log_note(state, args.get('note') or '教学结算', subject or None, applied)
     return status_view(state)
 
 
@@ -191,7 +210,9 @@ def status_view(state, battle=None):
         'totalMastery': total_mastery(state),
         'derived': derived_attributes(state),
         'subjects': state['subjects'],
+        # log 保持 8 条（界面上「近期记录」用的），history 给回放/学习报告用更多
         'log': state['log'][:8],
+        'history': state['log'][:40],
         'demonUnlocked': demon_unlocked(state),
         'demonTries': state.get('demonTries') or 0,
         'imageKey': img_key,
