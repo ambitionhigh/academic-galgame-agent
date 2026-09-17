@@ -412,12 +412,27 @@ def _short_path(p: str) -> str:
 
 # ══════════ 真正跑服务（前台进程） ══════════
 
+def cache_dir() -> Path:
+    """ima 知识库索引缓存（下载的书 + 抽出的正文）。
+
+    必须落在**持久**位置：打包后 __file__ 指向 PyInstaller 的临时解包目录，
+    用它做缓存等于每次启动都白下几十 MB 的书。
+    """
+    if FROZEN:
+        beside = install_dir() / ".ima-cache"
+        if _writable(install_dir()):
+            return beside
+        return data_dir() / "ima-cache"
+    return code_root() / ".ima-cache"
+
+
 def serve(port):
     root = code_root()
     if str(root) not in sys.path:
         sys.path.insert(0, str(root))
-    # 让 .env 落在可持久的位置，而不是 PyInstaller 的临时解包目录
+    # 让 .env 和知识库索引缓存都落在可持久的位置，而不是 PyInstaller 的临时解包目录
     os.environ.setdefault("GALGAME_ENV", str(env_file()))
+    os.environ.setdefault("GALGAME_IMA_CACHE", str(cache_dir()))
     os.environ["PORT"] = str(port)
     os.environ.setdefault("HOST", "127.0.0.1")
     os.environ["GALGAME_OPEN"] = "0"      # 由启动器统一负责开浏览器
@@ -455,6 +470,7 @@ def selftest(port):
     lines.append(f"  程序目录   {install_dir()}")
     lines.append(f"  配置文件   {env_file()}" + ("" if env_file().exists() else "（还不存在，正常）"))
     lines.append(f"  日志目录   {data_dir()}")
+    lines.append(f"  索引缓存   {cache_dir()}")
     lines.append("")
 
     lines.append("资源：")

@@ -34,6 +34,7 @@ const el = {
   cfgImaKey: $('cfg-ima-key'), cfgImaClientId: $('cfg-ima-client-id'), cfgImaKbMap: $('cfg-ima-kb-map'),
   cfgTestLlm: $('cfg-test-llm'), cfgLlmResult: $('cfg-llm-result'),
   cfgTestIma: $('cfg-test-ima'), cfgImaResult: $('cfg-ima-result'),
+  cfgIndexKb: $('cfg-index-kb'),
   cfgListKb: $('cfg-list-kb'), cfgKbRows: $('cfg-kb-rows'),
   cfgNewSubject: $('cfg-new-subject'), cfgAddSubject: $('cfg-add-subject'),
   cfgSubjectResult: $('cfg-subject-result'), cfgSubjectList: $('cfg-subject-list'),
@@ -373,8 +374,10 @@ async function testLlm() {
 async function testIma() {
   const c = readForm()
   if (!c.imaKey || !c.imaClientId) return showResult(el.cfgImaResult, 'err', '请先填写 ima API Key 与 Client ID')
-  showResult(el.cfgImaResult, 'pending', '测试中…')
-  const headers = { 'content-type': 'application/json', 'x-ima-key': c.imaKey, 'x-ima-client-id': c.imaClientId }
+  showResult(el.cfgImaResult, 'pending', '测试中…（顺带看一眼知识库能不能读）')
+  const headers = { 'content-type': 'application/json' }
+  if (c.imaKey) headers['x-ima-key'] = c.imaKey
+  if (c.imaClientId) headers['x-ima-client-id'] = c.imaClientId
   if (c.imaKbMap) headers['x-ima-kb-map'] = encodeURIComponent(c.imaKbMap)
   try {
     const r = await fetch('/api/test', { method: 'POST', headers, body: JSON.stringify({ kind: 'ima' }) }).then((x) => x.json())
@@ -383,6 +386,27 @@ async function testIma() {
     } else {
       showResult(el.cfgImaResult, 'err', `✗ ${(r.detail && r.detail.error) || r.error || '失败'}`)
     }
+  } catch (e) { showResult(el.cfgImaResult, 'err', `✗ ${e.message}`) }
+}
+
+/** 把知识库里的书下载下来、抽出正文存到本机。第一次慢，之后秒回。 */
+async function indexKb() {
+  const c = readForm()
+  if (!c.imaKey || !c.imaClientId) return showResult(el.cfgImaResult, 'err', '请先填写 ima API Key 与 Client ID')
+  showResult(el.cfgImaResult, 'pending', '正在下载并解析你的书…第一次可能要几分钟，别关页面')
+  const headers = { 'content-type': 'application/json' }
+  if (c.imaKey) headers['x-ima-key'] = c.imaKey
+  if (c.imaClientId) headers['x-ima-client-id'] = c.imaClientId
+  if (c.imaKbMap) headers['x-ima-kb-map'] = encodeURIComponent(c.imaKbMap)
+  try {
+    const r = await fetch('/api/ima/index', { method: 'POST', headers, body: JSON.stringify({}) }).then((x) => x.json())
+    if (!r.ok) return showResult(el.cfgImaResult, 'err', `✗ ${r.error || '索引失败'}`)
+    const st = r.index || {}
+    let msg = `✓ ${r.note}`
+    if (st.unreadable_detail && st.unreadable_detail.length) {
+      msg += `｜读不了的：${st.unreadable_detail.slice(0, 3).map((d) => `${(d.title || '').slice(0, 16)}（${d.why}）`).join('；')}`
+    }
+    showResult(el.cfgImaResult, 'ok', msg)
   } catch (e) { showResult(el.cfgImaResult, 'err', `✗ ${e.message}`) }
 }
 
@@ -705,6 +729,7 @@ el.cfgTestLlm.addEventListener('click', testLlm)
 // 换服务商 → 自动把地址和模型名填好（用户还是可以自己改）
 el.cfgLlmProvider.addEventListener('change', () => applyProvider(el.cfgLlmProvider.value))
 el.cfgTestIma.addEventListener('click', testIma)
+el.cfgIndexKb.addEventListener('click', indexKb)
 el.cfgListKb.addEventListener('click', loadKbList)
 el.cfgAddSubject.addEventListener('click', () => addSubject(el.cfgNewSubject.value))
 el.cfgNewSubject.addEventListener('keydown', (e) => {

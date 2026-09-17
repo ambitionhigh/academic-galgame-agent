@@ -150,28 +150,72 @@ async function imaPost(path, body, creds = {}) {
 }
 
 /** ② ima 知识库内检索；未配置或没有可用知识库时返回 null */
+/**
+ * 判断下载回来的东西是不是「书」的原始二进制（PDF / EPUB / zip / 图片…）。
+ *
+ * ima 的 get_media_info 给的是**原始文件**地址。往知识库里放的是 PDF/EPUB 时，
+ * 拿到的就是几十 MB 二进制；当文本读只会得到 `%PDF-1.6 %äüöß...` 这种乱码。
+ * 把乱码喂给模型等于让它读天书 —— 宁可如实说「读不了」，也不能假装读到了。
+ */
+function binaryKind(buf) {
+  const b = buf.subarray(0, 8)
+  const hex = Buffer.from(b).toString('latin1')
+  if (hex.startsWith('%PDF')) return 'PDF'
+  if (hex.startsWith('PK')) return '压缩包（EPUB/Word/Excel）'
+  if (hex.startsWith('\x89PNG')) return '图片'
+  if (hex.startsWith('\xff\xd8\xff')) return '图片'
+  if (hex.startsWith('GIF8')) return '图片'
+  if (hex.startsWith('RIFF')) return '音视频'
+  if (hex.startsWith('ID3')) return '音频'
+  // 出现 NUL 字节基本可以断定不是文本
+  const probe = buf.subarray(0, 1024)
+  for (let i = 0; i < probe.length; i++) if (probe[i] === 0) return '二进制文件'
+  return ''
+}
+
 async function imaRetrieve(query, subject, creds = {}) {
   const { apiKey, clientId } = imaCreds(creds)
   const map = parseKbMap(creds.imaKbMap || process.env.IMA_KB_MAP || '')
   const kb = map[subject] || Object.values(map)[0] || creds.imaKb || process.env.IMA_KB || ''
   if (!apiKey || !clientId || !kb) return null
 
-  const sj = await imaPost('/search_knowledge', { knowledge_base_id: kb, query: String(query || ''), limit: 6 }, creds)
+  const sj = await imaPost('/search_knowledge', { knowledge_base_id: kb, query: String(query || ''), cursor: '' }, creds)
   if (sj.code !== 0) return { ok: false, apiOk: false, source: 'ima', items: [], error: sj.msg }
   const hits = (sj.data && sj.data.info_list) || []
   const items = []
+  let unreadable = 0
   for (const h of hits.slice(0, 2)) {
     const entry = { title: h.title, source: 'ima', content: '' }
     try {
       const mj = await imaPost('/get_media_info', { media_id: h.media_id }, creds)
       const url = mj && mj.data && mj.data.url_info && mj.data.url_info.url
-      if (url) entry.content = (await (await fetch(url)).text()).slice(0, MAX_CHARS)
+      if (url) {
+        const buf = Buffer.from(await (await fetch(url)).arrayBuffer())
+        const kind = binaryKind(buf)
+        if (kind) {
+          // 是原始文件，不是文本 —— 明确说清楚，不把乱码当正文
+          unreadable++
+          entry.error = `这是一本 ${kind} 原始文件，需要先抽出正文才能读`
+        } else {
+          entry.content = buf.toString('utf8').slice(0, MAX_CHARS)
+        }
+      }
     } catch (e) {
       entry.error = String((e && e.message) || e)
     }
     items.push(entry)
   }
-  return { ok: items.length > 0, apiOk: true, source: 'ima', count: hits.length, items }
+  const usable = items.filter((x) => x.content)
+  if (!usable.length && unreadable) {
+    return {
+      ok: false, apiOk: true, source: 'ima', count: hits.length, items: [],
+      error: `知识库里的《${items[0].title || '这本书'}》是 PDF/EPUB 原始文件，Node 版还没做正文抽取`,
+      hint: 'ima 自己的搜索只匹配书名、拿不到书里内容。需要「下载原始文件 → 抽取正文 → 本地检索」'
+        + '这一整套（Python 版已实现，见 python/agent/textract.py 与 ima_index.py）。'
+        + '要么改用 Python 版 / Windows 桌面版，要么把书转成 .md / .txt 再放进知识库。',
+    }
+  }
+  return { ok: usable.length > 0, apiOk: true, source: 'ima', count: hits.length, items: usable }
 }
 
 /**

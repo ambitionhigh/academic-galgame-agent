@@ -26,7 +26,9 @@ from engine.session import GameSession
 from engine.storage import MemoryStorage
 from agent.gm import GameMaster
 from agent.llm import describe_llm, llm_chat, PROVIDER_PRESETS
-from agent.retriever import retrieve, test_ima, ima_enabled, list_knowledge_bases
+from agent.retriever import (retrieve, test_ima, ima_enabled, list_knowledge_bases,
+                             ima_creds, parse_kb_map)
+from agent import ima_index
 
 from .env import load_env, env_path
 
@@ -214,6 +216,56 @@ class Handler(BaseHTTPRequestHandler):
             # 服务商预设表：前端下拉框直接用它渲染，避免两边各维护一份
             if pathname == '/api/providers' and method == 'GET':
                 return self.send_json(200, {'ok': True, 'providers': PROVIDER_PRESETS})
+
+            # 建/更新 ima 知识库索引（把书下载下来抽正文）。
+            # 第一次用某个知识库会慢（要下书），所以给个独立入口让用户主动跑，
+            # 而不是每次提问都干等。
+            if pathname == '/api/ima/index' and method == 'POST':
+                creds = creds_from_headers(self.headers)
+                if not ima_enabled(creds):
+                    return self.send_json(200, {'ok': False, 'error': '请先填写 ima API Key 与 Client ID'})
+                body = self.read_body() or {}
+                kb_map = creds.get('imaKbMap') or ''
+                try:
+                    kb_map = json.loads(kb_map) if isinstance(kb_map, str) else (kb_map or {})
+                except Exception:
+                    kb_map = {}
+                kb = body.get('kbId') or (list(kb_map.values())[0] if kb_map else '')
+                if not kb:
+                    return self.send_json(200, {'ok': False, 'error': '还没有给学科绑定知识库'})
+                c = ima_creds(creds)
+                try:
+                    stats = ima_index.build_index(
+                        kb, c['apiKey'], c['clientId'],
+                        budget_seconds=float(body.get('budget') or 240),
+                        focus=str(body.get('focus') or ''),
+                        force_relists=bool(body.get('refresh')),
+                        reset=bool(body.get('reset') or body.get('refresh')))
+                except Exception as err:
+                    return self.send_json(200, {'ok': False, 'error': str(err)})
+                st = ima_index.index_status(kb)
+                return self.send_json(200, {
+                    'ok': True, 'stats': stats, 'index': st,
+                    'note': '共 %d 个文件，已解析 %d 本（%.1f 万字）%s%s' % (
+                        st['listed'], st['ready'], st['chars'] / 10000.0,
+                        ('，还有 %d 个待解析（再点一次继续）'
+                         % max(0, st['listed'] - st['ready'] - st['unreadable']))
+                        if st['listed'] - st['ready'] - st['unreadable'] > 0 else '',
+                        ('；%d 个读不了（扫描版/图片版/网页笔记）' % st['unreadable'])
+                        if st['unreadable'] else ''),
+                })
+
+            if pathname == '/api/ima/index' and method == 'GET':
+                creds = creds_from_headers(self.headers)
+                kb_map = creds.get('imaKbMap') or ''
+                try:
+                    kb_map = json.loads(kb_map) if isinstance(kb_map, str) else (kb_map or {})
+                except Exception:
+                    kb_map = {}
+                kb = list(kb_map.values())[0] if kb_map else ''
+                if not kb:
+                    return self.send_json(200, {'ok': False, 'error': '还没有给学科绑定知识库'})
+                return self.send_json(200, {'ok': True, 'index': ima_index.index_status(kb)})
 
             if pathname == '/api/state' and method == 'GET':
                 entry, cookie = self.session_for()

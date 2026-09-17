@@ -101,6 +101,25 @@ export async function resolveKb(nameOrId) {
 /* ══════════ 检索 ══════════ */
 
 /**
+ * 下载回来的东西是不是「书」的原始二进制（PDF / EPUB / zip / 图片…）。
+ *
+ * ima 的 get_media_info 给的是**原始文件**地址。往知识库里放的是 PDF/EPUB 时，
+ * 拿到的就是几十 MB 二进制；当文本读只会得到 `%PDF-1.6 %äüöß...` 这种乱码。
+ * 把乱码喂给模型等于让它读天书 —— 宁可如实说「读不了」。
+ */
+function binaryKind(buf) {
+  const head = buf.subarray(0, 8).toString('latin1')
+  if (head.startsWith('%PDF')) return 'PDF'
+  if (head.startsWith('PK')) return '压缩包（EPUB/Word/Excel）'
+  if (head.startsWith('\x89PNG') || head.startsWith('\xff\xd8\xff') || head.startsWith('GIF8')) return '图片'
+  if (head.startsWith('RIFF')) return '音视频'
+  if (head.startsWith('ID3')) return '音频'
+  const probe = buf.subarray(0, 1024)
+  for (let i = 0; i < probe.length; i++) if (probe[i] === 0) return '二进制文件'
+  return ''
+}
+
+/**
  * 在该学科绑定的 ima 知识库里检索真实片段。
  * 未配置 / 未绑定 → 返回 null（交给上层回落到本地教材库）
  */
@@ -111,25 +130,42 @@ export async function retrieveIma(query, subject) {
   const kbId = creds.kbMap[subject] || Object.values(creds.kbMap)[0] || ''
   if (!kbId) return null
 
-  const sj = await imaPost('/search_knowledge', { knowledge_base_id: kbId, query: String(query || ''), limit: 6 }, creds)
+  const sj = await imaPost('/search_knowledge', { knowledge_base_id: kbId, query: String(query || ''), cursor: '' }, creds)
   if (sj.code !== 0) {
     return { ok: false, source: 'ima', items: [], error: `ima 检索失败 code ${sj.code}：${sj.msg || ''}` }
   }
   const hits = (sj.data && sj.data.info_list) || []
   const items = []
+  let unreadable = 0
   for (const h of hits.slice(0, 2)) {
     const entry = { title: h.title, source: 'ima', subject: subject || '', content: '' }
     try {
       const mj = await imaPost('/get_media_info', { media_id: h.media_id }, creds)
       const url = mj && mj.data && mj.data.url_info && mj.data.url_info.url
       if (url) {
-        const r = await fetch(url)
-        entry.content = (await r.text()).slice(0, MAX_CHARS)
+        const buf = Buffer.from(await (await fetch(url)).arrayBuffer())
+        const kind = binaryKind(buf)
+        if (kind) {
+          unreadable++
+          entry.error = `这是 ${kind} 原始文件，要先抽出正文才能读`
+        } else {
+          entry.content = buf.toString('utf8').slice(0, MAX_CHARS)
+        }
       }
     } catch (e) {
       entry.error = String((e && e.message) || e)
     }
     items.push(entry)
   }
-  return { ok: items.length > 0, source: 'ima', count: hits.length, items: items.slice(0, MAX_SECTIONS) }
+  const usable = items.filter((x) => x.content)
+  if (!usable.length && unreadable) {
+    return {
+      ok: false, source: 'ima', count: hits.length, items: [],
+      error: `知识库里的《${(items[0] && items[0].title) || '这本书'}》是 PDF/EPUB 原始文件，技能包还没做正文抽取`,
+      hint: 'ima 自己的搜索只匹配书名，拿不到书里的内容。'
+        + '要么把书转成 .md / .txt 再放进知识库，要么用带正文抽取的版本'
+        + '（academic-galgame-agent 的 Python 版已实现：python/agent/textract.py + ima_index.py）。',
+    }
+  }
+  return { ok: usable.length > 0, source: 'ima', count: hits.length, items: usable.slice(0, MAX_SECTIONS) }
 }

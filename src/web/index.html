@@ -128,7 +128,7 @@
         <span id="cfg-llm-result" class="test-result"></span>
       </div>
 
-      <h3>② ima 知识库（你自己的教材 · 可选）</h3>
+      <h3>② ima 知识库（你自己的书 · 老师出题的真实依据）</h3>
       <label class="field"><span>API Key</span>
         <input id="cfg-ima-key" type="password" autocomplete="off" /></label>
       <label class="field"><span>Client ID</span>
@@ -136,8 +136,15 @@
       <div class="test-row">
         <button id="cfg-test-ima" class="ghost-btn">测试 ima 连接</button>
         <button id="cfg-list-kb" class="ghost-btn">拉取知识库列表</button>
+        <button id="cfg-index-kb" class="ghost-btn">把书下载并解析到本地</button>
         <span id="cfg-ima-result" class="test-result"></span>
       </div>
+      <p class="modal-note" style="margin-top:8px">
+        📚 ima 自己的搜索<b>只匹配书名，搜不到书里的内容</b>，而且它给的是 PDF/EPUB 原始文件。
+        所以这里会把你的书下载下来、抽出正文存到本机，之后老师才真的能读到书里写了什么。
+        <b>第一次会慢</b>（要下几十 MB 的书），之后就很快了；书不会重复下载。
+        <br />扫描版 / 纯图片的书抽不出文字，会如实告诉你，不会假装读过。
+      </p>
 
       <div id="cfg-kb-rows" class="kb-rows">
         <p class="kb-hint">点「拉取知识库列表」后，这里会列出你的知识库 ——

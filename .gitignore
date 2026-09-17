@@ -31,3 +31,11 @@ desktop/.icon-preview-*.png
 # download/ 里的成品压缩包是**故意**提交的：
 # 它给不装任何东西的人一条点击即下的链接。要换新版本时覆盖同名文件即可。
 !download/*.zip
+
+# ima 知识库索引缓存（下载下来的书 + 抽出的正文，可随时删）
+.ima-cache/
+python/.ima-cache/
+
+# Python 字节码
+__pycache__/
+*.pyc
