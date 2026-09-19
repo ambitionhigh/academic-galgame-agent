@@ -16,6 +16,10 @@
 // 抽不出来时返回空字符串，由上层如实告诉用户「这本书是扫描件，读不了」，
 // 而不是把乱码喂给模型。
 
+import { closeSync, existsSync, mkdtempSync, openSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { basename, join } from 'node:path'
+import { spawnSync } from 'node:child_process'
 import { inflateSync, inflateRawSync } from 'node:zlib'
 
 // 抽到的字少于这个数就当作「没抽到」：多半是扫描版/图片版/需要登录的网页笔记。
@@ -23,6 +27,193 @@ export const MIN_USEFUL_CHARS = 400
 
 // 单次解析的输入上限
 export const MAX_INPUT_BYTES = 150 * 1024 * 1024
+
+/* ══════════════════════════════════════════════════════════════════
+   MinerU（可选）：扫描版 / 复杂版面的救援路径
+   ══════════════════════════════════════════════════════════════════
+
+   MinerU（github.com/opendatalab/MinerU）带 OCR 与版面分析，能读内置解析器
+   啃不动的扫描版 PDF、表格、公式。但它要装几 GB 的模型、跑得也慢，
+   所以这里做成**可选**：
+
+     · 没装 → 完全不参与，行为与以前一模一样（项目保持零依赖）
+     · 装了 → auto 模式下只在「内置解析器读不出来」时才动用它当救援
+              （普通文字版 PDF 走内置的，快得多）
+              always 模式下优先用它（质量更好，但慢）
+
+   绝不使用 --remote：那会把用户的资料上传到 MinerU 的服务器。
+   隐私边界由使用者自己决定，我们不替他们决定。
+
+   ⚠️ 这台机器上 Node 无法用管道捕获子进程输出（沙箱禁止命名管道），
+   所以 stdout/stderr 都重定向到临时文件，而不是 spawnSync 的 encoding 模式。 */
+
+export const MINERU_MODE = (process.env.GALGAME_MINERU || 'auto').trim().toLowerCase()
+export const MINERU_TIMEOUT = Number(process.env.GALGAME_MINERU_TIMEOUT || 600) * 1000
+const MINERU_OFF = ['0', 'off', 'false', 'no', 'none']
+
+let _mineruCmd
+
+/** 简易 which：不靠子进程（管道在受限环境里会被拒） */
+function whichSync(cmd) {
+  if (!cmd) return ''
+  if (cmd.includes('/') || cmd.includes('\\')) return existsSync(cmd) ? cmd : ''
+  const win = process.platform === 'win32'
+  const exts = win ? (process.env.PATHEXT || '.COM;.EXE;.BAT;.CMD').split(';').filter(Boolean) : ['']
+  for (const dir of String(process.env.PATH || '').split(win ? ';' : ':')) {
+    if (!dir) continue
+    for (const ext of exts) {
+      const p = join(dir, cmd + ext)
+      try { if (statSync(p).isFile()) return p } catch { /* 继续找 */ }
+    }
+  }
+  return ''
+}
+
+/** 探测可用的 MinerU CLI；没装返回 ''（结果缓存） */
+export function mineruCommand() {
+  if (_mineruCmd !== undefined) return _mineruCmd
+  if (MINERU_OFF.includes(MINERU_MODE)) { _mineruCmd = ''; return '' }
+  const explicit = process.env.MINERU_CMD
+  if (explicit) {
+    const found = whichSync(explicit)
+    if (found) { _mineruCmd = found; return found }
+  }
+  for (const name of ['mineru', 'mineru-kit']) {
+    const found = whichSync(name)
+    if (found) { _mineruCmd = found; return found }
+  }
+  _mineruCmd = ''
+  return ''
+}
+
+export function mineruAvailable() {
+  return Boolean(mineruCommand())
+}
+
+/** 跑子进程，stdout/stderr 各写一个文件（避开管道限制）。不抛异常。
+ *
+ *  ⚠️ Node 从 18.20 起不允许直接 spawn `.bat`/`.cmd`（会 EINVAL），
+ *  而 uv / pip 装的 CLI 在 Windows 上可能是 `.cmd` 垫片，所以这里用
+ *  `cmd /c` 包一层。Python 的 subprocess 没这个问题，所以两边要分开处理。 */
+function runCapture(exe, args, outFile, errFile, timeoutMs) {
+  let outFd, errFd
+  try {
+    outFd = openSync(outFile, 'w')
+    errFd = openSync(errFile, 'w')
+  } catch (e) {
+    try { if (outFd !== undefined) closeSync(outFd) } catch { /* ignore */ }
+    return { ok: false, err: String((e && e.message) || e) }
+  }
+  try {
+    const isBatch = /\.(bat|cmd)$/i.test(exe)
+    // ⚠️ 必须强制子进程用 UTF-8 输出。MinerU 是 Python 工具，在中文 Windows 上
+    //    它的 stdout 默认跟随控制台代码页（GBK）—— 那样我们按 UTF-8 读回来就是乱码。
+    //    （实测过：同一份 JSON，GBK 输出会让正文长度从 1451 变成 2175 的乱码。）
+    const childEnv = { ...process.env, PYTHONIOENCODING: 'utf-8', PYTHONUTF8: '1' }
+    let r
+    if (isBatch) {
+      // 批处理必须走 shell。注意路径里的空格：得自己加引号，
+      // 而且整条命令作为**一个字符串**交给 shell（shell 模式下 Node 不会再转义参数）。
+      const q = (s) => '"' + String(s).replace(/"/g, '""') + '"'
+      r = spawnSync([exe, ...args].map(q).join(' '), {
+        shell: true,
+        stdio: ['ignore', outFd, errFd],
+        timeout: timeoutMs,
+        windowsHide: true,
+        env: childEnv,
+      })
+    } else {
+      r = spawnSync(exe, args, {
+        stdio: ['ignore', outFd, errFd],
+        timeout: timeoutMs,
+        windowsHide: true,
+        env: childEnv,
+      })
+    }
+    if (r.error) {
+      const msg = String((r.error && r.error.message) || r.error)
+      return { ok: false, err: /ETIMEDOUT|timed? ?out/i.test(msg) ? `超时（${timeoutMs / 1000}s）` : msg }
+    }
+    return { ok: r.status === 0, err: r.status === 0 ? '' : `退出码 ${r.status}` }
+  } finally {
+    try { closeSync(outFd) } catch { /* ignore */ }
+    try { closeSync(errFd) } catch { /* ignore */ }
+  }
+}
+
+function readIfExists(p) {
+  try { return readFileSync(p, 'utf8') } catch { return '' }
+}
+
+/** 用 MinerU 抽正文。@returns {{text:string, note:string}} note 非空表示没成功 */
+export function mineruText(data, filename = '', timeoutMs) {
+  const exe = mineruCommand()
+  if (!exe) return { text: '', note: 'MinerU 未安装' }
+  const timeout = timeoutMs || MINERU_TIMEOUT
+  const work = mkdtempSync(join(tmpdir(), 'galgame-mineru-'))
+  try {
+    const src = join(work, basename(filename) || 'document.pdf')
+    writeFileSync(src, data)
+
+    // ① 新版 CLI：mineru parse <file> --pages all --json
+    const out1 = join(work, 'out1.json')
+    const err1 = join(work, 'err1.txt')
+    let r = runCapture(exe, ['parse', src, '--pages', 'all', '--json'], out1, err1, timeout)
+    if (r.ok) {
+      const text = mineruExtractJson(readIfExists(out1))
+      if (text.trim()) return { text, note: '' }
+      r = { ok: false, err: readIfExists(err1).trim().slice(0, 200) || '返回里没有正文' }
+    }
+
+    // ② 兜底：无状态转换 mineru-kit parse <file> -o <out.md>
+    const kit = process.env.MINERU_KIT_CMD || whichSync('mineru-kit')
+    if (kit) {
+      const outMd = join(work, 'out.md')
+      const err2 = join(work, 'err2.txt')
+      const r2 = runCapture(kit, ['parse', src, '-o', outMd], join(work, 'out2.txt'), err2, timeout)
+      if (r2.ok) {
+        const text = readIfExists(outMd)
+        if (text.trim()) return { text, note: '' }
+      }
+      r = { ok: false, err: (r2.err || r.err || '').trim().slice(0, 200) }
+    }
+    return { text: '', note: `MinerU 没抽出正文（${(r.err || '未知原因').trim().slice(0, 200)}）` }
+  } finally {
+    try { rmSync(work, { recursive: true, force: true }) } catch { /* ignore */ }
+  }
+}
+
+/** 从 mineru 的 --json 输出里取正文（可能夹着日志行，逐行倒着试） */
+export function mineruExtractJson(stdout) {
+  const dig = (obj) => {
+    if (!obj || typeof obj !== 'object') return ''
+    const c = obj.content
+    if (c && typeof c === 'object') {
+      for (const k of ['content', 'markdown', 'text']) {
+        if (typeof c[k] === 'string' && c[k].trim()) return c[k]
+      }
+    }
+    if (typeof c === 'string' && c.trim()) return c
+    for (const k of ['markdown', 'text', 'md']) {
+      if (typeof obj[k] === 'string' && obj[k].trim()) return obj[k]
+    }
+    return ''
+  }
+  try {
+    const got = dig(JSON.parse(stdout))
+    if (got) return got
+  } catch { /* 落到逐行 */ }
+  const lines = String(stdout || '').split('\n')
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const line = lines[i].trim()
+    if (!line.startsWith('{')) continue
+    try {
+      const got = dig(JSON.parse(line))
+      if (got) return got
+    } catch { /* 继续 */ }
+  }
+  return ''
+}
 
 /* ══════════════════════════════════════════════════════════════════
    对外入口
@@ -83,11 +274,25 @@ export function extractText(buf, filename = '') {
       if (nb) { text = ''; note = nb }
     }
   } else if (kind0 === 'pdf') {
+    // MinerU 是可选的重武器：always 模式先上它；auto 模式先走内置解析器
+    // （普通文字版 PDF 内置的又快又够用），读不出来才请它来救援扫描件。
+    const forceMineru = mineruAvailable() && ['always', '1', 'on', 'true', 'yes'].includes(MINERU_MODE)
+    if (forceMineru) {
+      const m = mineruText(buf, filename)
+      if (m.text.trim()) return { text: m.text, kind: 'pdf+mineru', note: '' }
+    }
+
     text = pdfText(buf)
+    if (!text.trim() && mineruAvailable()) {
+      const m = mineruText(buf, filename)
+      if (m.text.trim()) return { text: m.text, kind: 'pdf+mineru', note: '' }
+      return { text: '', kind: 'pdf-scanned',
+               note: `这本 PDF 内置解析器读不出来（多半是扫描件），MinerU 也没成功：${m.note}` }
+    }
     if (!text.trim()) {
       return { text: '', kind: 'pdf-scanned',
-               note: '这本 PDF 抽不到文字，多半是**扫描件**（整页都是图片），'
-                 + '不是文字版。需要在 ima 里用 OCR，或换文字版' }
+               note: '这本 PDF 抽不到文字，多半是**扫描件**（整页都是图片），不是文字版。'
+                 + '装上 MinerU（带 OCR）就能读这类文件，见 README 的「扫描版 PDF」一节' }
     }
   } else if (kind0 === 'docx') {
     text = docxText(buf)

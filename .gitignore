@@ -39,3 +39,6 @@ python/.ima-cache/
 # Python 字节码
 __pycache__/
 *.pyc
+
+# 本地临时产物（测试用的样本、假 CLI、调试脚本等）
+.tmp/

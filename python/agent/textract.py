@@ -15,10 +15,16 @@
 而不是把乱码喂给模型。
 """
 
+import io
+import json
+import os
 import re
+import shutil
+import subprocess
+import sys
+import tempfile
 import zlib
 import zipfile
-import io
 
 # 单次解析的输入上限：再大就不划算（一本 200MB 的扫描书解析出来也是空的）
 MAX_INPUT_BYTES = 150 * 1024 * 1024
@@ -26,6 +32,162 @@ MAX_INPUT_BYTES = 150 * 1024 * 1024
 # 抽到的字少于这个数，就当作「没抽到」：多半是扫描版/图片版/需要登录的网页笔记。
 # 宁可如实说读不了，也不要把目录或乱码喂给模型。
 MIN_USEFUL_CHARS = 400
+
+
+# ══════════════════════════════════════════════════════════════════
+#  MinerU（可选）：扫描版 / 复杂版面的救援路径
+# ══════════════════════════════════════════════════════════════════
+#
+# MinerU（github.com/opendatalab/MinerU）带 OCR 与版面分析，能读内置解析器
+# 啃不动的扫描版 PDF、表格、公式。但它要装几 GB 的模型、跑得也慢，
+# 所以这里做成**可选**：
+#
+#   · 没装 → 完全不参与，行为与以前一模一样（项目保持零依赖）
+#   · 装了 → auto 模式下只在「内置解析器读不出来」时才动用它当救援
+#            （普通文字版 PDF 走内置的，快得多）
+#            always 模式下优先用它（质量更好，但慢）
+#
+# 绝不使用 --remote：那会把用户的资料上传到 MinerU 的服务器。
+# 隐私边界由使用者自己决定，我们不替他们决定。
+
+MINERU_MODE = (os.environ.get('GALGAME_MINERU') or 'auto').strip().lower()
+MINERU_TIMEOUT = int(os.environ.get('GALGAME_MINERU_TIMEOUT') or 600)
+_mineru_cmd = None          # 探测结果缓存：'' 表示没有
+
+
+def mineru_command():
+    """探测可用的 MinerU CLI；没装返回 ''（结果会缓存）。
+
+    认两种入口：`mineru`（新版，agent 向）与 `mineru-kit`（无状态转换）。
+    也可以用 MINERU_CMD 显式指定路径。
+    """
+    global _mineru_cmd
+    if _mineru_cmd is not None:
+        return _mineru_cmd
+    if MINERU_MODE in ('0', 'off', 'false', 'no', 'none'):
+        _mineru_cmd = ''
+        return ''
+    explicit = os.environ.get('MINERU_CMD')
+    if explicit:
+        found = shutil.which(explicit) or (explicit if os.path.isfile(explicit) else '')
+        if found:
+            _mineru_cmd = found
+            return found
+    for name in ('mineru', 'mineru-kit'):
+        found = shutil.which(name)
+        if found:
+            _mineru_cmd = found
+            return found
+    _mineru_cmd = ''
+    return ''
+
+
+def mineru_available():
+    return bool(mineru_command())
+
+
+def _run(cmd, timeout):
+    """跑子进程，返回 (ok, stdout, stderr)。不抛异常。
+
+    ⚠️ 必须强制子进程用 UTF-8 输出。MinerU 是 Python 工具，在中文 Windows 上
+    它的 stdout 默认跟随控制台代码页（GBK）—— 那样我们按 UTF-8 读回来就是乱码。
+    （实测过：同一份 JSON，GBK 输出会让正文长度从 1451 变成 2175 的乱码。）
+    """
+    env = dict(os.environ)
+    env['PYTHONIOENCODING'] = 'utf-8'
+    env['PYTHONUTF8'] = '1'
+    try:
+        p = subprocess.run(cmd, capture_output=True, timeout=timeout, env=env)
+    except subprocess.TimeoutExpired:
+        return False, '', '超时（%ss）' % timeout
+    except Exception as e:
+        return False, '', str(e)
+    out = (p.stdout or b'').decode('utf-8', 'replace')
+    err = (p.stderr or b'').decode('utf-8', 'replace')
+    return p.returncode == 0, out, err
+
+
+def mineru_text(data, filename='', timeout=None):
+    """用 MinerU 抽正文。返回 (text, note)。
+
+    note 非空表示没成功，里面是原因 —— 交给上层如实告诉用户，而不是静默当作没抽到。
+    """
+    exe = mineru_command()
+    if not exe:
+        return '', 'MinerU 未安装'
+    timeout = timeout or MINERU_TIMEOUT
+
+    work = tempfile.mkdtemp(prefix='galgame-mineru-')
+    try:
+        name = os.path.basename(filename) or 'document.pdf'
+        src = os.path.join(work, name)
+        with open(src, 'wb') as f:
+            f.write(data)
+
+        # ① 新版 CLI：mineru parse <file> --json（返回结构里有 content.content）
+        ok, out, err = _run([exe, 'parse', src, '--pages', 'all', '--json'], timeout)
+        if ok:
+            text = _mineru_extract_json(out)
+            if text.strip():
+                return text, ''
+            err = err or '返回里没有正文'
+
+        # ② 兜底：无状态转换 mineru-kit parse <file> -o <out.md>
+        kit = os.environ.get('MINERU_KIT_CMD') or shutil.which('mineru-kit')
+        if kit:
+            out_md = os.path.join(work, 'out.md')
+            ok2, _out2, err2 = _run([kit, 'parse', src, '-o', out_md], timeout)
+            if ok2 and os.path.isfile(out_md):
+                try:
+                    with open(out_md, 'r', encoding='utf-8', errors='replace') as f:
+                        text = f.read()
+                    if text.strip():
+                        return text, ''
+                except OSError as e:
+                    err2 = str(e)
+            err = err2 or err
+        return '', 'MinerU 没抽出正文（%s）' % ((err or '未知原因').strip()[:200])
+    finally:
+        shutil.rmtree(work, ignore_errors=True)
+
+
+def _mineru_extract_json(stdout):
+    """从 mineru 的 --json 输出里取正文。
+
+    输出可能夹着日志行，所以先整体试 JSON，不行再从每一行/每个 `{` 起试。
+    """
+    def dig(obj):
+        if not isinstance(obj, dict):
+            return ''
+        c = obj.get('content')
+        if isinstance(c, dict):
+            for k in ('content', 'markdown', 'text'):
+                v = c.get(k)
+                if isinstance(v, str) and v.strip():
+                    return v
+        if isinstance(c, str) and c.strip():
+            return c
+        for k in ('markdown', 'text', 'md'):
+            v = obj.get(k)
+            if isinstance(v, str) and v.strip():
+                return v
+        return ''
+
+    try:
+        return dig(json.loads(stdout))
+    except Exception:
+        pass
+    for line in reversed(stdout.splitlines()):
+        line = line.strip()
+        if not line.startswith('{'):
+            continue
+        try:
+            got = dig(json.loads(line))
+            if got:
+                return got
+        except Exception:
+            continue
+    return ''
 
 
 # ══════════════════════════════════════════════════════════════════
@@ -89,10 +251,24 @@ def extract_text(data, filename=''):
             if nb:
                 text, note = '', nb
     elif kind == 'pdf':
+        # MinerU 是可选的重武器：always 模式先上它；auto 模式先走内置解析器
+        # （普通文字版 PDF 内置的又快又够用），读不出来才请它来救援扫描件。
+        if mineru_available() and MINERU_MODE in ('always', '1', 'on', 'true', 'yes'):
+            mt, _mnote = mineru_text(data, filename)
+            if mt.strip():
+                return mt, 'pdf+mineru', ''
+
         text, _scanned = _pdf_text(data)
+        if not text.strip() and mineru_available():
+            mt, mnote = mineru_text(data, filename)
+            if mt.strip():
+                return mt, 'pdf+mineru', ''
+            return '', 'pdf-scanned', (
+                '这本 PDF 内置解析器读不出来（多半是扫描件），MinerU 也没成功：%s' % mnote)
         if not text.strip():
-            return '', 'pdf-scanned', ('这本 PDF 抽不到文字，多半是**扫描件**（整页都是图片），'
-                                       '不是文字版。需要在 ima 里用 OCR，或换文字版')
+            return '', 'pdf-scanned', (
+                '这本 PDF 抽不到文字，多半是**扫描件**（整页都是图片），不是文字版。'
+                '装上 MinerU（带 OCR）就能读这类文件，见 README 的「扫描版 PDF」一节')
     elif kind == 'docx':
         text = _docx_text(data)
     else:

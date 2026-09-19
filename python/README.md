@@ -134,12 +134,43 @@ academic-galgame-py/
 
 | 情况 | 说明 |
 |---|---|
-| **扫描版 PDF** | 整页都是图片、没有文字层。需要在 ima 里做 OCR，或换文字版 |
-| **图片版 EPUB** | 正文在几十张 JPG 里（实测《不反弹的减肥》就是） |
+| **扫描版 PDF** | 整页都是图片、没有文字层。**装 MinerU 就能读**（见下） |
+| **图片版 EPUB** | 正文在几十张 JPG 里（实测《不反弹的减肥》就是）。MinerU 处理不了这种 epub，需要先在 ima 里 OCR |
 | **网页 / 公众号 / ima 笔记** | 存的是需要登录才能看的快照，抽不出正文 |
 | 录音 / 视频 | 转文字请在 ima 里做 |
 
 `index_status` 会把这些**逐本列出来并说明原因**（`unreadable_detail`），而不是笼统一句「失败」。
+
+### 扫描版 PDF：可选接 MinerU
+
+[MinerU](https://github.com/opendatalab/MinerU)（opendatalab）带 OCR 与版面分析，
+能读内置解析器啃不动的**扫描版 PDF**、表格、公式。
+
+它是**可选**的 —— 项目本身仍然零依赖：
+
+| `GALGAME_MINERU` | 行为 |
+|---|---|
+| `auto`（默认） | **普通文字版 PDF 走内置解析器**（快），只有读不出来时才请 MinerU 来救援 |
+| `always` | 所有 PDF 都优先用 MinerU（质量更好，但慢很多） |
+| `0` / `off` | 完全不参与，行为与没装它时一模一样 |
+
+```bash
+# 安装（需要 Python 3.10~3.14）
+pip install uv
+uv tool install --python 3.12 "mineru>=4.0,<5"
+# 或：pipx install "mineru>=4.0,<5"
+
+# 装完不用配置，程序自动探测 mineru / mineru-kit
+# 想指定路径：MINERU_CMD=/path/to/mineru
+# 想调超时：  GALGAME_MINERU_TIMEOUT=900   （秒，默认 600）
+```
+
+**隐私**：只做本地解析，**绝不传 `--remote`** —— 那会把你的资料上传到 MinerU 的服务器。
+隐私边界由你自己决定，程序不替你决定。
+
+> 实测（用假 CLI 验证契约，不依赖真装模型）：扫描件在 auto 下会被救援并解析出正文；
+> 文字版 PDF 不会惊动它；`GALGAME_MINERU=0` 时完全不参与。
+> 复验：`node scripts/check-mineru.js`
 
 ### 检索质量
 
