@@ -49,6 +49,14 @@ export const MAX_INPUT_BYTES = 150 * 1024 * 1024
 
 export const MINERU_MODE = (process.env.GALGAME_MINERU || 'auto').trim().toLowerCase()
 export const MINERU_TIMEOUT = Number(process.env.GALGAME_MINERU_TIMEOUT || 600) * 1000
+
+// 档位（MinerU 4 的四档）：flash / basic / standard / advanced。
+// 不传档位不行 —— MinerU 默认是 **standard**，而 standard 要「小模型 + VLM」，
+// VLM 才是那几个 GB 的大头。实测（ModelScope 的 MinerU-4_models_onnx）：
+//   小模型包合计 818 MB = 公式识别 564 + 版面分析 204 + **OCR 仅 20** + 表格 22
+//   而 VLM 是额外几个 GB。
+// 我们的用途是「把扫描书读成文字喂给老师」，basic 就够且不需要 VLM，所以默认 basic。
+export const MINERU_TIER = (process.env.GALGAME_MINERU_TIER || 'basic').trim().toLowerCase()
 const MINERU_OFF = ['0', 'off', 'false', 'no', 'none']
 
 let _mineruCmd
@@ -158,7 +166,7 @@ export function mineruText(data, filename = '', timeoutMs) {
     // ① 新版 CLI：mineru parse <file> --pages all --json
     const out1 = join(work, 'out1.json')
     const err1 = join(work, 'err1.txt')
-    let r = runCapture(exe, ['parse', src, '--pages', 'all', '--json'], out1, err1, timeout)
+    let r = runCapture(exe, ['parse', src, '--pages', 'all', '--json', '--tier', MINERU_TIER], out1, err1, timeout)
     if (r.ok) {
       const text = mineruExtractJson(readIfExists(out1))
       if (text.trim()) return { text, note: '' }

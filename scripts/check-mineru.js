@@ -136,7 +136,13 @@ const NODE_ENV = { MINERU_CMD: STUB, MINERU_ARGV_LOG: ARGV_LOG }
   fail(check('确实调用了假 CLI', argv.length > 0))
   fail(check('**没有传 --remote**（隐私边界）', !argv.includes('--remote'), argv.slice(0, 7).join(' ')))
   fail(check('用了 --json', argv.includes('--json')))
+  fail(check('**带了档位且默认 basic**',
+    argv.includes('--tier') && argv[argv.indexOf('--tier') + 1] === 'basic',
+    argv.slice(-3).join(' ')))
   fail(check('请求了全部页面', argv.includes('all')))
+  fail(check('**带了档位且默认 basic**（不传的话 MinerU 会走 standard，白下几 GB 的 VLM）',
+    argv.includes('--tier') && argv[argv.indexOf('--tier') + 1] === 'basic',
+    argv.slice(-3).join(' ')))
 
   // ④ auto：文字版不惊动它
   clearArgv()
@@ -184,6 +190,9 @@ print(k, '|', len(t))`, { ...ENV_BASE }, pyOut)
   fail(check('扫描件 → MinerU 救援成功', out.startsWith('pdf+mineru |') && !out.endsWith('| 0'), out))
   fail(check('**没有传 --remote**（隐私边界）', !argv.includes('--remote'), argv.slice(0, 6).join(' ')))
   fail(check('用了 --json', argv.includes('--json')))
+  fail(check('**带了档位且默认 basic**',
+    argv.includes('--tier') && argv[argv.indexOf('--tier') + 1] === 'basic',
+    argv.slice(-3).join(' ')))
 
   // ④ 文字版不惊动它
   clearArgv()

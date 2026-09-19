@@ -231,8 +231,12 @@ ima 自己的接口有两个硬限制（实测）：
 | Python 版 / 桌面版 | `python/agent/textract.py` + `ima_index.py` | 同上 |
 | WorkBuddy 技能版 | `scripts/textract.js` + `ima_index.js` | `node galgame.js ima index --subject <学科>` |
 
-**扫描版 PDF**（整页图片、没有文字层）可选接 [MinerU](https://github.com/opendatalab/MinerU) 做 OCR：GALGAME_MINERU=auto（默认）时只有内置解析器读不出来才请它救援，普通文字版 PDF 不受影响；只做本地解析、**绝不传 --remote**。
-ode scripts/check-mineru.js 可复验适配器契约。
+**扫描版 PDF**（整页图片、没有文字层）可选接 [MinerU](https://github.com/opendatalab/MinerU) 做 OCR：
+`GALGAME_MINERU=auto`（默认）时只有内置解析器读不出来才请它救援，普通文字版 PDF 不受影响；
+档位用 `GALGAME_MINERU_TIER`（**默认 `basic`** —— 只要 ≈818 MB 的 ONNX 小模型，**不需要几 GB 的 VLM**；
+`flash` 更轻最快，`standard` 质量最高但要额外下几 GB）。
+只做本地解析、**绝不传 `--remote`**。
+`node scripts/check-mineru.js` 可复验适配器契约。
 
 实测（同一个 10 个文件的知识库，两版结果一致）：解析 6 本 = 131.7 万字；
 扫描版 PDF / 图片版 EPUB **会逐本列出书名和原因**，不会假装读过。

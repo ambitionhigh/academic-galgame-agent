@@ -151,8 +151,31 @@ academic-galgame-py/
 | `GALGAME_MINERU` | 行为 |
 |---|---|
 | `auto`（默认） | **普通文字版 PDF 走内置解析器**（快），只有读不出来时才请 MinerU 来救援 |
-| `always` | 所有 PDF 都优先用 MinerU（质量更好，但慢很多） |
+| `always` | 所有 PDF 都优先用 MinerU |
 | `0` / `off` | 完全不参与，行为与没装它时一模一样 |
+
+**档位（`GALGAME_MINERU_TIER`，默认 `basic`）** —— 这个参数很关键，别忽略：
+
+MinerU 自己的默认档位是 `standard`，而 standard 要「小模型 **+ VLM**」，
+**VLM 才是那几个 GB 的大头**。实测小模型包（ModelScope 的 `MinerU-4_models_onnx`）：
+
+| 组成 | 大小 |
+|---|---|
+| 公式识别 PP-FormulaNet | 564 MB |
+| 版面分析 PP-DocLayoutV2 | 204 MB |
+| **OCR 识别 ch_PP-OCRv6** | **20 MB** |
+| 表格识别 | 22 MB |
+| 小模型包合计 | **818 MB** |
+| VLM（standard 才需要） | 额外几个 GB |
+
+我们的用途是「把扫描书读成文字喂给老师」，`basic` 够用且**不需要 VLM**，所以默认给 basic：
+
+| `GALGAME_MINERU_TIER` | 下载量 | 说明 |
+|---|---|---|
+| `flash` | 最小 | 最轻最快，扫描件用它自带的 Flash OCR；质量按 MinerU 自己的说法是「预览/索引」级 |
+| `basic`（默认） | ≈818 MB | ONNX 小模型，不需要 VLM；**「小型模型即时阅读」就选它** |
+| `standard` | +几 GB | 小模型 + VLM，版面最复杂时质量最好 |
+| `advanced` | 同 standard | 共用模型，投入更多推理算力 |
 
 ```bash
 # 安装（需要 Python 3.10~3.14）

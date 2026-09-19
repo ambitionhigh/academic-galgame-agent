@@ -52,6 +52,17 @@ MIN_USEFUL_CHARS = 400
 
 MINERU_MODE = (os.environ.get('GALGAME_MINERU') or 'auto').strip().lower()
 MINERU_TIMEOUT = int(os.environ.get('GALGAME_MINERU_TIMEOUT') or 600)
+
+# 档位（MinerU 4 的四档）：flash / basic / standard / advanced。
+#
+# 为什么不传档位是不行的：MinerU 的默认是 **standard**，而 standard 要「小模型 + VLM」——
+# VLM 才是那几个 GB 的大头。实测（ModelScope 上的 MinerU-4_models_onnx）：
+#   小模型包合计 818 MB，其中公式识别 564 MB + 版面分析 204 MB + **OCR 只有 20 MB**
+#   而 VLM 是额外几个 GB。
+# 我们这里的用途是「把扫描书读成文字喂给老师」，用 basic 就够，且不需要 VLM ——
+# 所以默认给 basic；想要最高质量再自己设 standard。
+MINERU_TIER = (os.environ.get('GALGAME_MINERU_TIER') or 'basic').strip().lower()
+
 _mineru_cmd = None          # 探测结果缓存：'' 表示没有
 
 
@@ -125,7 +136,7 @@ def mineru_text(data, filename='', timeout=None):
             f.write(data)
 
         # ① 新版 CLI：mineru parse <file> --json（返回结构里有 content.content）
-        ok, out, err = _run([exe, 'parse', src, '--pages', 'all', '--json'], timeout)
+        ok, out, err = _run([exe, 'parse', src, '--pages', 'all', '--json', '--tier', MINERU_TIER], timeout)
         if ok:
             text = _mineru_extract_json(out)
             if text.strip():
