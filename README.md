@@ -54,6 +54,7 @@
 - [🌐 在线体验 / 部署](#-在线体验--部署)
 - [在 Trae 中使用](#在-trae-中使用)
 - [🧩 在 WorkBuddy 中使用（技能版）](#-在-workbuddy-中使用技能版)
+- [展示脉络（怎么讲）](#展示脉络怎么讲)
 - [玩法](#玩法)
 - [苏格拉底式教学](#苏格拉底式教学)
 - [项目结构](#项目结构)
@@ -390,6 +391,12 @@ node ~/.workbuddy/skills/academic-galgame/scripts/galgame.js panel --port 8790
 > 详细安装、命令表、自检步骤见 [`workbuddy/README.md`](./workbuddy/README.md)。
 
 ---
+
+## 展示脉络（怎么讲）
+
+要拿它做演示的话，别念功能清单 —— 看 [docs/PRESENTATION.md](./docs/PRESENTATION.md)：
+一条六段递进的主线（每段都回答上一段留下的疑问）、三种时长的砍法、三种听众的调法、
+现场操作卡、四个「必炸」时刻、翻车预案，以及一页可以打印的速查卡。
 
 ## 玩法
 
