@@ -502,12 +502,42 @@ def selftest(port):
             sys.path.insert(0, str(root))
     except Exception:
         pass
-    for mod in ("engine.game", "engine.battle", "agent.llm", "agent.gm", "agent.retriever", "server.server"):
+    for mod in ("engine.game", "engine.battle", "agent.llm", "agent.gm", "agent.retriever",
+                "agent.textract", "agent.pdfbytes", "agent.visionread", "agent.ima_index",
+                "server.server"):
         try:
             __import__(mod)
             check(mod, True)
         except Exception as e:
             check(mod, False, f"{type(e).__name__}: {e}")
+    lines.append("")
+
+    # 扫描版 PDF 的读法：这条必须单独报，因为它最容易「看起来在、其实不在」——
+    # 页面渲染器是第三方库，打包时不一定带得进去。没带进去时靠纯标准库的兜底，
+    # 用户至少要知道当前是哪条路、能不能用。
+    lines.append("读扫描版 PDF：")
+    try:
+        # 先确保 .env 真被读进来了，再判断 —— 否则「配置文件找到了」和
+        # 「配置生效了」会不一致，自检就会报出误导性的「未配置」。
+        # 路径要**显式传**：server.env 默认按模块位置推算，打包后会落到 _internal 下。
+        try:
+            os.environ.setdefault("GALGAME_ENV", str(env_file()))
+            from server.env import load_env
+            load_env(str(env_file()))
+        except Exception:
+            pass
+        from agent import visionread
+        st = visionread.status()
+        check("取页面图（%s）" % st["rendererKind"], st["renderer"],
+              "有 pypdfium2 就真渲染页面；没有就从 PDF 里抠嵌入的页面图（纯标准库）")
+        if st["configured"]:
+            check("视觉模型已配置", st["ready"], f"{st['base']} / {st['model']}")
+        else:
+            check("视觉模型未配置", True,
+                  "扫描件会读不了。配 GALGAME_VISION_BASE / GALGAME_VISION_MODEL 即可，"
+                  "见 README「扫描版 PDF」")
+    except Exception as e:
+        check("visionread", False, f"{type(e).__name__}: {e}")
     lines.append("")
 
     lines.append("端口：")
