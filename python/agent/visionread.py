@@ -37,6 +37,14 @@ import tempfile
 import urllib.error
 import urllib.request
 
+try:                                    # 作为包导入（agent.visionread）
+    from .pdfbytes import find_objects, dict_of, stream_of
+except ImportError:                     # 直接跑单文件时
+    try:
+        from pdfbytes import find_objects, dict_of, stream_of
+    except ImportError:                 # 极端情况：只要不抠图就不影响
+        find_objects = dict_of = stream_of = None
+
 DEFAULT_DPI = int(os.environ.get('GALGAME_VISION_DPI') or 150)
 DEFAULT_MAX_PAGES = int(os.environ.get('GALGAME_VISION_MAX_PAGES') or 40)
 PAGE_TIMEOUT = int(os.environ.get('GALGAME_VISION_TIMEOUT') or 180)
@@ -70,16 +78,22 @@ def vision_configured():
 
 
 def renderer_available():
-    """页面渲染器在不在（pypdfium2）。"""
+    """取页面图的「家伙」在不在 —— 现在**永远**可用：
+    装了 pypdfium2 就真渲染页面；没装就从 PDF 里抠嵌入的页面图（纯标准库）。"""
+    return True
+
+
+def renderer_kind():
+    """用的是哪条路 —— 给自检和诊断看。"""
     try:
         import pypdfium2  # noqa: F401
-        return True
+        return 'pypdfium2-render'
     except Exception:
-        return False
+        return 'embedded-image'
 
 
 def vision_available():
-    """这一路能不能用：配置齐 + 渲染器在。"""
+    """这一路能不能用：配置齐 + 有办法拿到页面图。"""
     return vision_configured() and renderer_available()
 
 
@@ -89,6 +103,7 @@ def status():
     return {
         'configured': vision_configured(),
         'renderer': renderer_available(),
+        'rendererKind': renderer_kind(),
         'ready': vision_available(),
         'base': c['base'] or None,
         'model': c['model'] or None,
@@ -102,19 +117,26 @@ def status():
 # ══════════════════════════════════════════════════════════════════
 
 def render_pdf(data, dpi=None, max_pages=None):
-    """把 PDF 渲染成 PNG 列表。返回 (pages, note)：pages 是 bytes 列表。
+    """把 PDF 变成「一页一张图」的列表。返回 (pages, note)：pages 是 bytes 列表。
 
-    需要 pypdfium2；没装会抛 RuntimeError，由上层如实告诉用户。
+    两条路，自动选：
+      · 装了 pypdfium2 —— **真渲染页面**，能应付「一页里拼了好几张图」的复杂排版（首选）
+      · 没装（比如打包好的桌面版）—— 直接从 PDF 对象结构里**抠出嵌入的页面图**，
+        纯标准库。扫描件的每一页本来就是一个整页位图，所以这条路覆盖绝大多数扫描书。
+
+    为什么必须有不依赖 pypdfium2 的兜底：桌面版是 PyInstaller 打的，没把 pypdfium2
+    打进去（它是第三方库，而本项目的卖点就是零依赖）。没有兜底的话，
+    用户装好的 exe 会**静默地读不了扫描件** —— 这种「功能看起来在、其实不在」最坑人。
     """
+    dpi = dpi or DEFAULT_DPI
+    max_pages = max_pages or DEFAULT_MAX_PAGES
+
     try:
         import pypdfium2 as pdfium
     except Exception:
-        raise RuntimeError('缺少页面渲染器 pypdfium2（pip install pypdfium2）')
+        return _embedded_page_images(data, max_pages)
 
-    dpi = dpi or DEFAULT_DPI
-    max_pages = max_pages or DEFAULT_MAX_PAGES
     scale = dpi / 72.0
-
     out = []
     pdf = pdfium.PdfDocument(data)
     try:
@@ -137,6 +159,205 @@ def render_pdf(data, dpi=None, max_pages=None):
         except Exception:
             pass
     return out, ('共 %d 页，只读了前 %d 页' % (n, max_pages) if n > max_pages else '')
+
+
+# ══════════════════════════════════════════════════════════════════
+#  兜底：直接从 PDF 里抠嵌入的页面图（纯标准库，不需要任何渲染器）
+#  与 Node 版 src/agent/visionread.js 的 pageImages() 是同一套逻辑
+# ══════════════════════════════════════════════════════════════════
+
+# 小于这个尺寸的图是装饰/logo，不是正文页面
+MIN_PAGE_IMAGE_PIXELS = 250000
+
+
+def _embedded_page_images(data, max_pages):
+    """返回 (png_or_jpeg_bytes 列表, note)。认不出来的会明确说明，不给花图。"""
+    if find_objects is None:
+        return [], '缺少 pdfbytes 模块，没办法从 PDF 里取页面图'
+
+    objs = find_objects(data)
+    if not objs:
+        return [], '这个 PDF 没有可解析的对象结构'
+
+    pages = []
+    for num in sorted(objs):
+        d = dict_of(objs[num])
+        if b'/Type' in d and b'/Page' in d and b'/Pages' not in d:
+            pages.append(d)
+    if not pages:
+        return [], '没找到页面对象'
+
+    out, unsupported, too_small = [], 0, 0
+    for d in pages:
+        if len(out) >= max_pages:
+            break
+        for num in _xobject_nums(objs, d):
+            body = objs.get(num, b'')
+            img = _image_from_object(dict_of(body), stream_of(body))
+            if not img:
+                continue
+            if img[0] is None:
+                unsupported += 1
+                continue
+            if img[2] * img[3] < MIN_PAGE_IMAGE_PIXELS:
+                too_small += 1
+                continue
+            out.append(img[1])
+
+    note = ''
+    if not out and unsupported:
+        note = ('这本 PDF 的页面图是 %d 张 CCITT/JPEG2000 编码的'
+                '（浏览器和模型都不认这两种），读不了' % unsupported)
+    elif not out and too_small:
+        note = '只找到 %d 张小图（logo/装饰），没有整页的正文图' % too_small
+    return out, note
+
+
+def _xobject_nums(objs, page_dict):
+    """页面资源里引用的图像对象号。"""
+    import re
+    res = b''
+    m = re.search(rb'/Resources\s*(\d+)\s+\d+\s+R', page_dict)
+    if m:
+        res = dict_of(objs.get(int(m.group(1)), b''))
+    else:
+        m2 = re.search(rb'/Resources\s*<<', page_dict)
+        if m2:
+            res = dict_of(page_dict[m2.start():])
+    if not res:
+        return []
+    xo = b''
+    xm = re.search(rb'/XObject\s*<<(.*?)>>', res, re.S)
+    if xm:
+        xo = xm.group(1)
+    else:
+        xr = re.search(rb'/XObject\s+(\d+)\s+\d+\s+R', res)
+        if xr:
+            xo = dict_of(objs.get(int(xr.group(1)), b''))
+    return [int(num) for _name, num in
+            re.findall(rb'/([A-Za-z0-9#_.\-]+)\s+(\d+)\s+\d+\s+R', xo)]
+
+
+def _image_from_object(d, raw):
+    """一个图像 XObject → (mime, data, w, h)；认不出来返回 None。
+
+    mime 为 None 表示「认得出来但现在处理不了」，要和「根本不是图像」区分开 ——
+    这样上层才能如实告诉用户为什么读不了，而不是含糊地说「没找到」。
+    """
+    import re
+    import zlib
+    if not re.search(rb'/Subtype\s*/Image\b', d):
+        return None
+    wm = re.search(rb'/Width\s+(\d+)', d)
+    hm = re.search(rb'/Height\s+(\d+)', d)
+    if not wm or not hm:
+        return None
+    w, h = int(wm.group(1)), int(hm.group(1))
+
+    fm = re.search(rb'/Filter\s*(\[[^\]]*\]|/\w+)', d)
+    filters = fm.group(1) if fm else b''
+
+    if b'DCTDecode' in filters:
+        # 流里就是一张现成的 JPEG —— 一个字节都不用解
+        return ('image/jpeg', raw, w, h)
+    if b'CCITTFaxDecode' in filters or b'JPXDecode' in filters or b'JBIG2Decode' in filters:
+        return (None, None, w, h)
+    if b'FlateDecode' in filters:
+        try:
+            raw = zlib.decompress(raw)
+        except Exception:
+            try:
+                raw = zlib.decompressobj(-15).decompress(raw)
+            except Exception:
+                return None
+        bm = re.search(rb'/BitsPerComponent\s+(\d+)', d)
+        if bm and int(bm.group(1)) != 8:
+            return (None, None, w, h)
+        cm = re.search(rb'/ColorSpace\s*(/\w+)', d)
+        cs = cm.group(1) if cm else b'/DeviceRGB'
+        # 颜色空间要**精确**匹配：曾经写成 /DeviceGray|G/，而 "/DeviceRGB" 里也有个 G，
+        # 结果把 RGB 当灰度编，图只用了 1/3 的像素、模型读出来是花的。
+        channels = 1 if cs in (b'/DeviceGray', b'/G') else 4 if cs in (b'/DeviceCMYK', b'/CMYK') else 3
+        if channels == 4:
+            return (None, None, w, h)
+        raw = apply_predictor(raw, d, w, channels)
+        if len(raw) < w * h * channels:
+            return None
+        return ('image/png', _png_encode(w, h, channels, raw[:w * h * channels]), w, h)
+    return None
+
+
+def apply_predictor(raw, d, width, channels):
+    """还原 PNG 预测器（PNG predictors）。
+
+    很多 PDF 里的 Flate 图像不是裸像素，而是「每行前面加一个 filter type 字节」的
+    PNG 预测编码。不还原的话拿到的就是一堆差分值 —— 编出来的 PNG 能打开，
+    但内容全是噪声，模型只会读出一堆乱码。这个坑很隐蔽，必须处理。
+    """
+    import re
+    dp = re.search(rb'/DecodeParms\s*<<(.*?)>>', d, re.S)
+    if not dp:
+        return raw
+    pm = re.search(rb'/Predictor\s+(\d+)', dp.group(1))
+    if not pm or int(pm.group(1)) < 10:
+        return raw                      # 1 = 没用预测器
+    cm = re.search(rb'/Colors\s+(\d+)', dp.group(1))
+    colors = int(cm.group(1)) if cm else channels
+    bm = re.search(rb'/BitsPerComponent\s+(\d+)', dp.group(1))
+    bpc = int(bm.group(1)) if bm else 8
+    om = re.search(rb'/Columns\s+(\d+)', dp.group(1))
+    columns = int(om.group(1)) if om else width
+
+    bpp = max(1, -(-colors * bpc // 8))            # 每像素字节数（预测的最小单位）
+    row_len = -(-colors * bpc * columns // 8)
+    rows = len(raw) // (row_len + 1)
+    if not rows or not row_len:
+        return raw
+
+    out = bytearray(row_len * rows)
+    prev = bytearray(row_len)
+    for r in range(rows):
+        ft = raw[r * (row_len + 1)]
+        row = bytearray(raw[r * (row_len + 1) + 1:(r + 1) * (row_len + 1)])
+        if ft in (1, 2, 3, 4):
+            for j in range(row_len):
+                a = row[j - bpp] if j >= bpp else 0
+                b = prev[j]
+                c = prev[j - bpp] if j >= bpp else 0
+                if ft == 1:
+                    add = a
+                elif ft == 2:
+                    add = b
+                elif ft == 3:
+                    add = (a + b) >> 1
+                else:
+                    p = a + b - c
+                    pa, pb, pc = abs(p - a), abs(p - b), abs(p - c)
+                    add = a if (pa <= pb and pa <= pc) else (b if pb <= pc else c)
+                row[j] = (row[j] + add) & 0xFF
+        out[r * row_len:(r + 1) * row_len] = row
+        prev = row
+    return bytes(out)
+
+
+def _png_encode(width, height, channels, pixels):
+    """裸像素 → PNG（只用标准库 zlib，不依赖 Pillow）。"""
+    import struct
+    import zlib
+    color_type = 0 if channels == 1 else 2
+    stride = width * channels
+    rows = bytearray()
+    for y in range(height):
+        rows.append(0)                              # filter: none
+        rows += pixels[y * stride:(y + 1) * stride]
+
+    def chunk(typ, data):
+        return (struct.pack('>I', len(data)) + typ + data
+                + struct.pack('>I', zlib.crc32(typ + data) & 0xFFFFFFFF))
+
+    ihdr = struct.pack('>IIBBBBB', width, height, 8, color_type, 0, 0, 0)
+    return (b'\x89PNG\r\n\x1a\n' + chunk(b'IHDR', ihdr)
+            + chunk(b'IDAT', zlib.compress(bytes(rows), 6)) + chunk(b'IEND', b''))
 
 
 def _png_bytes(pil_image):

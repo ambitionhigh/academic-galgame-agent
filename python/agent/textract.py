@@ -87,9 +87,11 @@ def vision_mode():
 
 try:                                    # 作为包导入（agent.textract）
     from . import visionread
+    from .pdfbytes import find_objects as _find_objects, dict_of as _dict_of, stream_of as _stream_of
 except ImportError:                     # 直接跑单文件时
     try:
         import visionread
+        from pdfbytes import find_objects as _find_objects, dict_of as _dict_of, stream_of as _stream_of
     except ImportError:
         visionread = None
 
@@ -472,55 +474,8 @@ def _docx_text(data):
 
 # ══════════════════════════════════════════════════════════════════
 #  PDF
+#  （find_objects / dict_of / stream_of 在 pdfbytes.py —— 与 visionread 共用一份）
 # ══════════════════════════════════════════════════════════════════
-
-_OBJ_RE = re.compile(rb'(\d+)\s+(\d+)\s+obj\b')
-
-
-def _find_objects(buf):
-    """把 pdf 里所有 `N G obj ... endobj` 收集起来 → {objnum: bytes}"""
-    objs = {}
-    for m in _OBJ_RE.finditer(buf):
-        num = int(m.group(1))
-        end = buf.find(b'endobj', m.end())
-        objs[num] = buf[m.end():end if end > 0 else len(buf)]
-    return objs
-
-
-def _dict_of(body):
-    """取对象里 `<< ... >>` 那一段（粗略配对，够用）。"""
-    start = body.find(b'<<')
-    if start < 0:
-        return b''
-    depth = 0
-    i = start
-    while i < len(body) - 1:
-        if body[i:i + 2] == b'<<':
-            depth += 1
-            i += 2
-            continue
-        if body[i:i + 2] == b'>>':
-            depth -= 1
-            i += 2
-            if depth == 0:
-                return body[start:i]
-            continue
-        i += 1
-    return body[start:]
-
-
-def _stream_of(body):
-    """取 `stream ... endstream` 之间的原始字节。"""
-    i = body.find(b'stream')
-    if i < 0:
-        return b''
-    j = i + 6
-    if body[j:j + 2] == b'\r\n':
-        j += 2
-    elif body[j:j + 1] in (b'\n', b'\r'):
-        j += 1
-    k = body.rfind(b'endstream')
-    return body[j:k] if k > j else b''
 
 
 def _decode_stream(dict_bytes, raw):
