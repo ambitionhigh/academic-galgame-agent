@@ -53,6 +53,11 @@ MIN_USEFUL_CHARS = 400
 MINERU_MODE = (os.environ.get('GALGAME_MINERU') or 'auto').strip().lower()
 MINERU_TIMEOUT = int(os.environ.get('GALGAME_MINERU_TIMEOUT') or 600)
 
+
+def mineru_mode():
+    """同 vision_mode：现读，别缓存。"""
+    return (os.environ.get('GALGAME_MINERU') or 'auto').strip().lower()
+
 # 档位（MinerU 4 的四档）：flash / basic / standard / advanced。
 #
 # 为什么不传档位是不行的：MinerU 的默认是 **standard**，而 standard 要「小模型 + VLM」——
@@ -62,6 +67,49 @@ MINERU_TIMEOUT = int(os.environ.get('GALGAME_MINERU_TIMEOUT') or 600)
 # 我们这里的用途是「把扫描书读成文字喂给老师」，用 basic 就够，且不需要 VLM ——
 # 所以默认给 basic；想要最高质量再自己设 standard。
 MINERU_TIER = (os.environ.get('GALGAME_MINERU_TIER') or 'basic').strip().lower()
+
+# ── 扫描件的第二把钥匙：让「有眼睛的模型」直接看页面 ────────────────────────
+#
+# 原理：扫描件之所以读不出来，是因为整页就是一张图。那就别费劲做 OCR 了 ——
+# 把页面渲染成 PNG，直接丢给多模态模型，让它把图上的字念出来。
+#
+# 和 MinerU 的分工：
+#   · 视觉模型：配好就能用，零模型下载，一页 1~2 秒。**可以完全本地**（Ollama）。
+#   · MinerU  ：全本地、离线，但要装 800 MB 模型，一本书几十秒到几分钟。
+# 所以默认顺序是「先视觉、后 MinerU」，两个都没配就如实告诉用户读不了。
+#
+# ⚠️ 隐私边界（必须让用户知道）：走远程 API 时，**页面图片会被发到模型厂商**。
+#    想完全不外传就用本地模型（GALGAME_VISION_BASE=http://127.0.0.1:11434/v1）。
+def vision_mode():
+    """读开关。**每次现读**，不要缓存成模块常量 ——
+    缓存的话测试改不动它，用户在跑起来之后再设环境变量也不生效。"""
+    return (os.environ.get('GALGAME_VISION') or 'auto').strip().lower()
+
+try:                                    # 作为包导入（agent.textract）
+    from . import visionread
+except ImportError:                     # 直接跑单文件时
+    try:
+        import visionread
+    except ImportError:
+        visionread = None
+
+
+def vision_available():
+    """视觉读页能不能用：既要在开关上允许，也要真的配好了模型。"""
+    if vision_mode() in ('0', 'off', 'false', 'no', 'none'):
+        return False
+    return bool(visionread and visionread.vision_available())
+
+
+def vision_read(data, filename='', on_progress=None):
+    """用多模态模型把 PDF 逐页念成文字。返回 (text, note)。"""
+    if not vision_available():
+        return '', '没配视觉模型'
+    try:
+        return visionread.read_pdf(data, filename, on_progress)
+    except Exception as e:               # 模型抽风不该让整本书解析失败
+        return '', '视觉模型出错：%s' % e
+
 
 _mineru_cmd = None          # 探测结果缓存：'' 表示没有
 
@@ -75,7 +123,7 @@ def mineru_command():
     global _mineru_cmd
     if _mineru_cmd is not None:
         return _mineru_cmd
-    if MINERU_MODE in ('0', 'off', 'false', 'no', 'none'):
+    if mineru_mode() in ('0', 'off', 'false', 'no', 'none'):
         _mineru_cmd = ''
         return ''
     explicit = os.environ.get('MINERU_CMD')
@@ -262,24 +310,44 @@ def extract_text(data, filename=''):
             if nb:
                 text, note = '', nb
     elif kind == 'pdf':
-        # MinerU 是可选的重武器：always 模式先上它；auto 模式先走内置解析器
-        # （普通文字版 PDF 内置的又快又够用），读不出来才请它来救援扫描件。
-        if mineru_available() and MINERU_MODE in ('always', '1', 'on', 'true', 'yes'):
+        # 两把可选的钥匙，都读不出来才轮到下一把：
+        #   ① 视觉模型读页（配了就能用、零模型下载、快，可以走本地 Ollama）
+        #   ② MinerU（全本地离线，但要装 800 MB 模型，慢）
+        # always 模式 = 不上内置解析器，直接上重武器（文字层烂掉的 PDF 用得上）。
+        if vision_available() and vision_mode() in ('always', '1', 'on', 'true', 'yes'):
+            vt, vnote = vision_read(data, filename)
+            if vt.strip():
+                return vt, 'pdf+vision', vnote
+
+        if mineru_available() and mineru_mode() in ('always', '1', 'on', 'true', 'yes'):
             mt, _mnote = mineru_text(data, filename)
             if mt.strip():
                 return mt, 'pdf+mineru', ''
 
         text, _scanned = _pdf_text(data)
-        if not text.strip() and mineru_available():
-            mt, mnote = mineru_text(data, filename)
-            if mt.strip():
-                return mt, 'pdf+mineru', ''
-            return '', 'pdf-scanned', (
-                '这本 PDF 内置解析器读不出来（多半是扫描件），MinerU 也没成功：%s' % mnote)
         if not text.strip():
+            # 内置解析器一个字都没抽到 = 扫描件。按「先视觉、后 MinerU」的顺序救援。
+            tried = []
+            if vision_available():
+                vt, vnote = vision_read(data, filename)
+                if vt.strip():
+                    return vt, 'pdf+vision', vnote
+                tried.append('视觉模型：%s' % vnote)
+            if mineru_available():
+                mt, mnote = mineru_text(data, filename)
+                if mt.strip():
+                    return mt, 'pdf+mineru', ''
+                tried.append('MinerU：%s' % mnote)
+            if tried:
+                return '', 'pdf-scanned', (
+                    '这本 PDF 是**扫描件**（整页都是图片，没有文字层），内置解析器读不出来，'
+                    '救援也没成功（%s）' % '；'.join(tried))
             return '', 'pdf-scanned', (
-                '这本 PDF 抽不到文字，多半是**扫描件**（整页都是图片），不是文字版。'
-                '装上 MinerU（带 OCR）就能读这类文件，见 README 的「扫描版 PDF」一节')
+                '这本 PDF 抽不到文字，多半是**扫描件**（整页都是图片），不是文字版。\n'
+                '两条路都能读它：\n'
+                '· **让有眼睛的模型看页面**（推荐，配一下就行、不用下载模型）——'
+                '在设置里填一个多模态模型的地址，或用本地 Ollama，见 README「扫描版 PDF」一节\n'
+                '· **MinerU**（全本地离线，但要装约 800 MB 模型）——同一个章节有说明')
     elif kind == 'docx':
         text = _docx_text(data)
     else:

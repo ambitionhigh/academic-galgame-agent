@@ -33,7 +33,7 @@ $groups = @(
     Name  = '取文'
     Src   = Join-Path $repoRoot 'src\agent'
     Dst   = Join-Path $skill 'scripts'
-    Files = @('textract.js', 'ima_index.js')
+    Files = @('textract.js', 'ima_index.js', 'pdfbytes.js', 'visionread.js')
   }
 )
 

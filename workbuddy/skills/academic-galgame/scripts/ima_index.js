@@ -19,7 +19,7 @@ import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-import { extractText } from './textract.js'
+import { extractTextAsync } from './textract.js'
 
 const IMA_HOST = 'ima.qq.com'
 const IMA_BASE = '/openapi/wiki/v1'
@@ -302,7 +302,7 @@ async function buildIndexInner(kbId, apiKey, clientId, opts) {
       continue
     }
 
-    const r = extractText(raw, doc.title || '')
+    const r = await extractTextAsync(raw, doc.title || '')
     if (!r.text) {
       doc.status = 'unsupported'
       doc.note = r.note || '抽不到正文'

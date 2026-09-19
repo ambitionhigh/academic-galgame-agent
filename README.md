@@ -231,12 +231,50 @@ ima 自己的接口有两个硬限制（实测）：
 | Python 版 / 桌面版 | `python/agent/textract.py` + `ima_index.py` | 同上 |
 | WorkBuddy 技能版 | `scripts/textract.js` + `ima_index.js` | `node galgame.js ima index --subject <学科>` |
 
-**扫描版 PDF**（整页图片、没有文字层）可选接 [MinerU](https://github.com/opendatalab/MinerU) 做 OCR：
+**扫描版 PDF**（整页图片、没有文字层）有**两条路**可以读，按「先视觉、后 MinerU」的顺序自动尝试：
+
+**① 让有眼睛的模型看页面（推荐）** —— 把 PDF 逐页送去多模态模型，让它把图上的字念出来。
+配一下就能用、**不用下载任何模型**，一页一两秒：
+
+```bash
+GALGAME_VISION_BASE=https://api.deepseek.com/v1   # 任何 OpenAI 兼容地址
+GALGAME_VISION_MODEL=deepseek-chat                 # 要选**多模态**模型
+GALGAME_VISION_KEY=sk-...
+```
+
+也可以**完全本地**、一个字都不外传（见下面「用本地模型」）：
+
+```bash
+GALGAME_VISION_BASE=http://127.0.0.1:11434/v1
+GALGAME_VISION_MODEL=qwen3.5:4b
+```
+
+| 变量 | 默认 | 说明 |
+|---|---|---|
+| `GALGAME_VISION` | `auto` | `auto` 只在内置解析器读不出来时才用；`always` 直接上视觉（文字层烂掉的 PDF 用得上）；`off` 关闭 |
+| `GALGAME_VISION_DPI` | `150` | 页面渲染清晰度。调高更准但更慢更贵 |
+| `GALGAME_VISION_MAX_PAGES` | `40` | 单本最多读几页 |
+| `GALGAME_VISION_TIMEOUT` | `180` | 单页超时（秒） |
+
+> ⚠️ **隐私边界**：走远程 API 时，**页面图片会被发到模型厂商**。想完全不外传就用本地模型。
+
+**② [MinerU](https://github.com/opendatalab/MinerU) 本地 OCR**（全本地离线，但要装模型、慢一些）：
 `GALGAME_MINERU=auto`（默认）时只有内置解析器读不出来才请它救援，普通文字版 PDF 不受影响；
 档位用 `GALGAME_MINERU_TIER`（**默认 `basic`** —— 只要 ≈818 MB 的 ONNX 小模型，**不需要几 GB 的 VLM**；
 `flash` 更轻最快，`standard` 质量最高但要额外下几 GB）。
 只做本地解析、**绝不传 `--remote`**。
 `node scripts/check-mineru.js` 可复验适配器契约。
+
+两版的实现细节不一样，但结果要对齐：
+Node 不能渲染 PDF，所以它是**直接从 PDF 对象结构里把页面图抠出来**
+（`/DCTDecode` 的整页 JPEG 原样取走；`/FlateDecode` 的裸像素用内置 zlib 编成 PNG，含 Predictor 还原）；
+Python 版用 `pypdfium2` 真渲染页面，能应付「一页里拼了好几张图」这种复杂排版。
+`node scripts/check-vision.js` 是离线自检：不需要模型、不需要联网，**逐像素**验证抠图这段没坏。
+
+**用本地模型（Ollama）跑基础解析**：装好 [Ollama](https://ollama.com) 后
+`ollama pull qwen3.5:4b`（Qwen3.5 原生多模态，约 3.2 GB），再把上面那三行本地地址写进 `.env`。
+这样扫描件的解析**不出本机、不花钱**；远程模型只留给真正需要它出题的环节。
+本机专用配置写进 `.env` 即可 —— `.env` 已被 `.gitignore` 忽略，**不会提交、不会随版本发出去**。
 
 实测（同一个 10 个文件的知识库，两版结果一致）：解析 6 本 = 131.7 万字；
 扫描版 PDF / 图片版 EPUB **会逐本列出书名和原因**，不会假装读过。

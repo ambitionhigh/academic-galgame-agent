@@ -22,6 +22,8 @@ import { basename, join } from 'node:path'
 import { spawnSync } from 'node:child_process'
 import { inflateSync, inflateRawSync } from 'node:zlib'
 
+import { findObjects, dictOf, streamOf, matchAll } from './pdfbytes.js'
+
 // 抽到的字少于这个数就当作「没抽到」：多半是扫描版/图片版/需要登录的网页笔记。
 export const MIN_USEFUL_CHARS = 400
 
@@ -47,7 +49,6 @@ export const MAX_INPUT_BYTES = 150 * 1024 * 1024
    ⚠️ 这台机器上 Node 无法用管道捕获子进程输出（沙箱禁止命名管道），
    所以 stdout/stderr 都重定向到临时文件，而不是 spawnSync 的 encoding 模式。 */
 
-export const MINERU_MODE = (process.env.GALGAME_MINERU || 'auto').trim().toLowerCase()
 export const MINERU_TIMEOUT = Number(process.env.GALGAME_MINERU_TIMEOUT || 600) * 1000
 
 // 档位（MinerU 4 的四档）：flash / basic / standard / advanced。
@@ -58,6 +59,21 @@ export const MINERU_TIMEOUT = Number(process.env.GALGAME_MINERU_TIMEOUT || 600) 
 // 我们的用途是「把扫描书读成文字喂给老师」，basic 就够且不需要 VLM，所以默认 basic。
 export const MINERU_TIER = (process.env.GALGAME_MINERU_TIER || 'basic').trim().toLowerCase()
 const MINERU_OFF = ['0', 'off', 'false', 'no', 'none']
+
+/**
+ * 读 MinerU 开关。**每次现读**，不要缓存成模块常量 ——
+ * 缓存的话跑起来之后再设环境变量就不生效了（Python 侧踩过这个坑）。
+ */
+export function mineruMode() {
+  return (process.env.GALGAME_MINERU || 'auto').trim().toLowerCase()
+}
+
+/**
+ * 视觉读页的入口。实现全在 visionread.js，这里只做转发，
+ * 免得调用方要同时 import 两个模块。
+ */
+import { visionAvailable, visionConfigured, visionMode, visionStatus, readPdf } from './visionread.js'
+export { visionAvailable, visionConfigured, visionMode, visionStatus }
 
 let _mineruCmd
 
@@ -80,7 +96,7 @@ function whichSync(cmd) {
 /** 探测可用的 MinerU CLI；没装返回 ''（结果缓存） */
 export function mineruCommand() {
   if (_mineruCmd !== undefined) return _mineruCmd
-  if (MINERU_OFF.includes(MINERU_MODE)) { _mineruCmd = ''; return '' }
+  if (MINERU_OFF.includes(mineruMode())) { _mineruCmd = ''; return '' }
   const explicit = process.env.MINERU_CMD
   if (explicit) {
     const found = whichSync(explicit)
@@ -254,7 +270,7 @@ export function sniffKind(buf, filename = '') {
  * 把原始文件抽成纯文本。
  * @returns {{text:string, kind:string, note:string}}
  */
-export function extractText(buf, filename = '') {
+export function extractText(buf, filename = '', opts = {}) {
   if (!buf || !buf.length) return { text: '', kind: 'empty', note: '文件是空的' }
   if (buf.length > MAX_INPUT_BYTES) {
     return { text: '', kind: 'toolarge', note: `文件超过 ${MAX_INPUT_BYTES / 1048576} MB，跳过解析` }
@@ -282,16 +298,19 @@ export function extractText(buf, filename = '') {
       if (nb) { text = ''; note = nb }
     }
   } else if (kind0 === 'pdf') {
-    // MinerU 是可选的重武器：always 模式先上它；auto 模式先走内置解析器
-    // （普通文字版 PDF 内置的又快又够用），读不出来才请它来救援扫描件。
-    const forceMineru = mineruAvailable() && ['always', '1', 'on', 'true', 'yes'].includes(MINERU_MODE)
+    // 两把可选的钥匙，都读不出来才轮到下一把：
+    //   ① 视觉模型读页（配了就能用、零模型下载、快，可以走本地 Ollama）
+    //   ② MinerU（全本地离线，但要装 800 MB 模型，慢）
+    //     —— 顺序在 extractTextAsync 里编排；这里只认「always」这个用户明示。
+    const useMineru = mineruAvailable() && !opts.skipMineru
+    const forceMineru = useMineru && ['always', '1', 'on', 'true', 'yes'].includes(mineruMode())
     if (forceMineru) {
       const m = mineruText(buf, filename)
       if (m.text.trim()) return { text: m.text, kind: 'pdf+mineru', note: '' }
     }
 
     text = pdfText(buf)
-    if (!text.trim() && mineruAvailable()) {
+    if (!text.trim() && useMineru) {
       const m = mineruText(buf, filename)
       if (m.text.trim()) return { text: m.text, kind: 'pdf+mineru', note: '' }
       return { text: '', kind: 'pdf-scanned',
@@ -299,8 +318,11 @@ export function extractText(buf, filename = '') {
     }
     if (!text.trim()) {
       return { text: '', kind: 'pdf-scanned',
-               note: '这本 PDF 抽不到文字，多半是**扫描件**（整页都是图片），不是文字版。'
-                 + '装上 MinerU（带 OCR）就能读这类文件，见 README 的「扫描版 PDF」一节' }
+               note: '这本 PDF 抽不到文字，多半是**扫描件**（整页都是图片），不是文字版。\n'
+                 + '两条路都能读它：\n'
+                 + '· **让有眼睛的模型看页面**（推荐，配一下就行、不用下载模型）——'
+                 + '设一个多模态模型的地址，或用本地 Ollama，见 README「扫描版 PDF」一节\n'
+                 + '· **MinerU**（全本地离线，但要装约 800 MB 模型）——同一个章节有说明' }
     }
   } else if (kind0 === 'docx') {
     text = docxText(buf)
@@ -315,6 +337,45 @@ export function extractText(buf, filename = '') {
              note: note || `只抽到 ${stripped.length} 个字，基本是目录或图片版，读不了正文` }
   }
   return { text, kind, note: '' }
+}
+
+/**
+ * 抽正文（**异步版**）—— 比 extractText 多一条「让有眼睛的模型看页面」的救援路。
+ *
+ * 为什么要有两个入口：视觉读页要走 HTTP，天生是异步的；而 extractText 是同步的，
+ * 已经有一堆调用方（还有 Python 侧要跟它逐字节对齐）。所以同步版保持原样不动，
+ * 需要读扫描件的地方用这个异步版。
+ *
+ * 救援顺序：内置解析器 → **视觉模型** → MinerU。
+ * 为什么视觉排在 MinerU 前面：视觉配好就能用、一页一两秒、不用下 800 MB 模型；
+ * MinerU 全本地离线但慢得多。两个都没配就如实告诉用户读不了。
+ */
+export async function extractTextAsync(buf, filename = '', onProgress) {
+  const visionOn = visionAvailable()
+  const forced = visionOn && ['always', '1', 'on', 'true', 'yes'].includes(visionMode())
+  // 有视觉模型时先按住 MinerU：它慢得多，别让它抢在前面跑几分钟
+  const r = extractText(buf, filename, { skipMineru: visionOn })
+
+  const isPdf = String(r.kind).startsWith('pdf')
+  if (r.text && !(forced && isPdf)) return r
+  if (!visionOn) return r
+  if (!forced && r.kind !== 'pdf-scanned') return r
+
+  const v = await readPdf(buf, filename, onProgress)
+  if (v.text.trim()) return { text: v.text, kind: 'pdf+vision', note: v.note || '' }
+  if (r.text) return r                    // always 模式下视觉没成，原文还能用
+
+  let note = joinNotes(r.note, `视觉模型也没读出来：${v.note || '（没内容）'}`)
+  if (mineruAvailable()) {                       // 最后一根稻草
+    const m = mineruText(buf, filename)
+    if (m.text.trim()) return { text: m.text, kind: 'pdf+mineru', note: '' }
+    note = joinNotes(note, `MinerU 也没成功：${m.note}`)
+  }
+  return { text: '', kind: 'pdf-scanned', note }
+}
+
+function joinNotes(a, b) {
+  return [a, b].filter(Boolean).join('\n')
 }
 
 function imageBookNote(buf, what) {
@@ -493,51 +554,7 @@ function docxText(buf) {
    解析全程用 latin1 字符串表示字节（一个字符 = 一个字节），
    和 Python 版直接操作 bytes 的语义一致，两边结果才能逐字节对齐。 */
 
-const OBJ_RE = /(\d+)\s+(\d+)\s+obj\b/g
-
-function findObjects(s) {
-  const objs = new Map()
-  let m
-  OBJ_RE.lastIndex = 0
-  while ((m = OBJ_RE.exec(s))) {
-    const num = parseInt(m[1], 10)
-    let end = s.indexOf('endobj', m.index + m[0].length)
-    if (end < 0) end = s.length
-    objs.set(num, s.slice(m.index + m[0].length, end))   // 后出现的覆盖前面的，与 Python 一致
-  }
-  return objs
-}
-
-function dictOf(body) {
-  const start = body.indexOf('<<')
-  if (start < 0) return ''
-  let depth = 0
-  let i = start
-  while (i < body.length - 1) {
-    if (body[i] === '<' && body[i + 1] === '<') { depth++; i += 2; continue }
-    if (body[i] === '>' && body[i + 1] === '>') {
-      depth--
-      i += 2
-      if (depth === 0) return body.slice(start, i)
-      continue
-    }
-    i++
-  }
-  return body.slice(start)
-}
-
-function streamOf(body) {
-  const i = body.indexOf('stream')
-  if (i < 0) return ''
-  let j = i + 6
-  if (body.slice(j, j + 2) === '\r\n') j += 2
-  else if (body[j] === '\n' || body[j] === '\r') j += 1
-  const k = body.lastIndexOf('endstream')
-  return k > j ? body.slice(j, k) : ''
-}
-
-function decodeStream(dictBytes, raw) {
-  const filters = []
+function decodeStream(dictBytes, raw) {  const filters = []
   const fm = dictBytes.match(/\/Filter\s*(\[[^\]]*\]|\/\w+)/g) || []
   for (const f of fm) {
     const names = f.match(/\/(\w+)/g) || []
@@ -640,16 +657,6 @@ function parseToUnicode(cmapBytes) {
     }
   }
   return { map: table, width }
-}
-
-/** 带捕获组的全局匹配 → 返回每次匹配的完整数组 */
-function* matchAll(s, re) {
-  const r = new RegExp(re.source, re.flags.includes('g') ? re.flags : re.flags + 'g')
-  let m
-  while ((m = r.exec(s))) {
-    yield m
-    if (m.index === r.lastIndex) r.lastIndex++
-  }
 }
 
 /** PDF 字面量字符串里的转义还原成字节 */
