@@ -92,6 +92,13 @@ $pyiArgs = @(
     "--add-data", "$(Join-Path $PySrc 'corpus');corpus",
     "--add-data", "$(Join-Path $PySrc 'agent\persona.md');agent",
     "--add-data", "$Ico;.",
+    # 排除纯死重：PyInstaller 会顺着依赖链把构建机上**装了但用不到**的库一起打进包。
+    # 实测（开发机装了 scipy/Pillow）多出来 27 MB：
+    #   scipy（libscipy_openblas 19.5 MB）—— 本项目一行都没用过
+    #   Pillow 的 AVIF 插件（7.5 MB）—— 我们只处理扫描页的 JPEG/PNG，永远不会开 AVIF
+    # 打包机器上装了什么，不该改变用户拿到多大的包。
+    "--exclude-module", "scipy",
+    "--exclude-module", "PIL.AvifImagePlugin",
     "--distpath", $Dist,
     "--workpath", $Work,
     "--specpath", (Join-Path $Desktop "build"),
